@@ -6,6 +6,7 @@ using TMPro;
 using UnityEditor;
 using Newtonsoft.Json;
 using System.Collections.Generic;
+using MCPForUnity.Runtime.UguiBake;
 
 namespace MCPForUnity.Editor.UguiBake
 {

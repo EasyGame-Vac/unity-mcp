@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace MCPForUnity.Editor.UguiBake
+namespace MCPForUnity.Runtime.UguiBake
 {
     /// <summary>
     /// 将矩形 <see cref="Image"/> 网格替换为凸多边形近似圆角矩形，半径为设计像素（与烘焙坐标一致）。

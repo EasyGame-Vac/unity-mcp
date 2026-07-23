@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace MCPForUnity.Editor.UguiBake
+namespace MCPForUnity.Runtime.UguiBake
 {
     /// <summary>
     /// 近似 HTML/CSS <c>linear-gradient()</c>：在 <see cref="Image"/>（或其它 <see cref="Graphic"/>）网格上按顶点着色做线性多色标渐变。

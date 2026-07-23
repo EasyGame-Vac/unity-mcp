@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-namespace MCPForUnity.Editor.UguiBake
+namespace MCPForUnity.Runtime.UguiBake
 {
     /// <summary>
     /// HTML/CSS 式描边：基于 Unity 内置 <see cref="Outline"/>（四向挤出顶点），与设计稿像素宽度 <paramref name="widthPx"/> 对齐。

@@ -1,7 +1,10 @@
 {
     "name": "MCPForUnity.Runtime",
     "rootNamespace": "MCPForUnity.Runtime",
-    "references": [],
+    "references": [
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

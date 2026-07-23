@@ -1,7 +1,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-namespace MCPForUnity.Editor.UguiBake
+namespace MCPForUnity.Runtime.UguiBake
 {
     /// <summary>
     /// UI 分辨率配置数据结构

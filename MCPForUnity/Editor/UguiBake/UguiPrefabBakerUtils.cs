@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEditor;
+using MCPForUnity.Runtime.UguiBake;
 
 namespace MCPForUnity.Editor.UguiBake
 {
