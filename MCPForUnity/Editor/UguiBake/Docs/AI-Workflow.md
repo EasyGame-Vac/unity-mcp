@@ -68,7 +68,8 @@ bake_ugui(
     prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/MyPage.prefab",
     reference_width=942,
     reference_height=2048,
-    use_tmp=True
+    use_tmp=True,
+    font_path="Assets/Fonts/NotoSansSC.asset"
 )
 ```
 
@@ -137,7 +138,67 @@ bake_ugui(
 )
 ```
 
-## 三、缩进 DSL 语法参考
+## 三、烘焙参数详解
+
+所有烘焙类 action（`bake`、`bake_batch`、`bake_partial`、`bake_from_html`、`bake_from_dsl`）均支持以下参数：
+
+### use_tmp — 文本组件类型
+
+| 值 | 文本组件 | 适用场景 |
+|----|---------|---------|
+| `true`（默认） | `TextMeshProUGUI` / `TMP_InputField` / `TMP_Dropdown` | 推荐用于正式项目，渲染质量高、支持 SDF |
+| `false` | `UnityEngine.UI.Text` / `InputField` / `Dropdown` | 无 TMP 包或需要轻量兼容时使用 |
+
+```
+bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...", use_tmp=False)
+```
+
+### font_path — 默认字体
+
+指定烘焙时所有文本组件使用的字体资源路径（Assets 相对路径）。
+
+| use_tmp | font_path 格式 | 加载类型 |
+|---------|---------------|---------|
+| `true` | `Assets/Fonts/MyFont.asset` | `TMP_FontAsset` |
+| `false` | `Assets/Fonts/MyFont.ttf` | `Font` |
+
+- 省略时自动回退到 `UguiBakeConfig` 配置资源中的 `defaultTmpFont` / `defaultLegacyFont`
+- 若配置也为空，TMP 使用全局默认字体，旧版 Text 使用系统默认字体
+
+```
+bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...",
+          use_tmp=True, font_path="Assets/Fonts/NotoSansSC.asset")
+```
+
+### template_prefab — 页面模板预制体
+
+指定烘焙的父级模板预制体路径（Assets 相对路径），模板根节点须含 `Canvas` 组件。
+
+- 烘焙时加载模板内容，在其 `transform` 下创建 UI 节点，然后另存为目标预制体
+- 适用于所有页面共享统一的 Canvas / EventSystem / 背景层结构
+- 省略时从零创建 Canvas（ScreenSpaceOverlay + CanvasScaler）
+
+```
+bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...",
+          template_prefab="Assets/Prefabs/UI/UITemplate.prefab")
+```
+
+### 参数优先级
+
+```
+MCP 调用参数 > UguiBakeConfig 配置 > 代码内置默认值
+```
+
+`UguiBakeConfig` ScriptableObject 字段（通过 `Create > UI Architecture > UGUI Bake Config` 创建）：
+
+| 字段 | 说明 |
+|------|------|
+| `useTMPText` | 默认文本组件类型 |
+| `defaultTmpFont` | TMP 默认字体 |
+| `defaultLegacyFont` | 旧版 Text 默认字体 |
+| `defaultTemplatePrefab` | 默认页面模板预制体 |
+
+## 四、缩进 DSL 语法参考
 
 > 缩进 DSL 是一种轻量 UI 描述格式，用 2 空格缩进表达层级，比 HTML 减少 ~65% token。
 > 底层复用同一套布局引擎，烘焙结果与 HTML 完全一致。
@@ -261,7 +322,7 @@ flex:row:start:evenly       → align-items:flex-start; justify-content:space-ev
 - **解析错误**会带行号抛出（如 `第 5 行：缩进跳级`），AI 应根据行号定位并修复后重试
 - 硬错误（直接失败）：多根节点、缩进跳级、根节点带缩进、DSL 为空
 
-## 四、Prompt 模板
+## 五、Prompt 模板
 
 ### 模板 A：从零创建新界面
 
@@ -337,7 +398,7 @@ bake_ugui(action="bake_partial", prefab_path="...", node_path="[目标节点路�
 4. 截图验证
 ```
 
-## 五、命名规范
+## 六、命名规范
 
 ### 节点命名（data-u-name）
 
@@ -364,7 +425,7 @@ bake_ugui(action="bake_partial", prefab_path="...", node_path="[目标节点路�
 | View 脚本 | 同 Prefabs 目录 | `{PageName}View.cs` |
 | 源 HTML | `Assets/3rd/HtmlToUGUI/HTML/` | `{PageName}.html` |
 
-## 六、布局引擎说明
+## 七、布局引擎说明
 
 C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 
@@ -392,7 +453,7 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 4. **全屏覆盖用 `position: absolute; left: 0; top: 0; width: 100%; height: 100%;` + `data-u-layout="stretch"`**
 5. **居中内容用 `data-u-layout="center"` + flex 父级**
 
-## 七、协作规范
+## 八、协作规范
 
 ### 版本管理
 - 每次烘焙自动保存 JSON 快照到 `Baked/Json/`
@@ -410,7 +471,7 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 - 增量更新使用 `bake_partial` 避免全量重建
 - 烘焙后 `AssetDatabase.Refresh()` 会自动触发
 
-## 八、常见问题
+## 九、常见问题
 
 | 问题 | 原因 | 解决方案 |
 |------|------|---------|
@@ -422,7 +483,7 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 | 编译报错 | HtmlToUGUI 包未正确安装 | 确认 `Assets/3rd/HtmlToUGUI/` 存在 |
 | bake_ugui 工具不可见 | MCP 工具组未启用 | 在 MCP for Unity 窗口启用 core 组 |
 
-## 九、完整示例
+## 十、完整示例
 
 ### 示例 A：DSL 格式（推荐）
 
@@ -451,7 +512,9 @@ bake_ugui(
     prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/SettingsPage.prefab",
     reference_width=942,
     reference_height=2048,
-    use_tmp=True
+    use_tmp=True,
+    font_path="Assets/Fonts/NotoSansSC.asset",
+    template_prefab="Assets/Prefabs/UI/UITemplate.prefab"
 )
 ```
 
@@ -522,6 +585,7 @@ bake_ugui(
     prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/SettingsPage.prefab",
     reference_width=942,
     reference_height=2048,
-    use_tmp=True
+    use_tmp=True,
+    font_path="Assets/Fonts/NotoSansSC.asset"
 )
 ```

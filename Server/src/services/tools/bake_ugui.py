@@ -39,6 +39,8 @@ from transport.legacy.unity_connection import async_send_command_with_retry
         "bake_from_html (HTML→JSON→prefab in one step), "
         "parse_dsl (indentation DSL→JSON, ~65% fewer tokens than HTML), "
         "bake_from_dsl (DSL→JSON→prefab, recommended entry point). "
+        "Supports use_tmp (TMP vs legacy Text), font_path (custom font asset), "
+        "and template_prefab (parent template with Canvas). "
         "Requires HtmlToUGUI package installed in the Unity project."
     ),
     group="core",
@@ -98,12 +100,15 @@ async def bake_ugui(
     ] = 2048,
     use_tmp: Annotated[
         bool,
-        "Use TextMeshPro for text components. Default true.",
+        "Use TextMeshPro (TMP) for text components. Set false to use legacy UnityEngine.UI.Text. "
+        "Default true. Applies to all bake actions (bake, bake_batch, bake_partial, "
+        "bake_from_html, bake_from_dsl).",
     ] = True,
     template_prefab: Annotated[
         str | None,
         "Template prefab path (optional). Root must have a Canvas component. "
-        "When provided, baking uses the template as the base structure.",
+        "When provided, baking uses the template as the base structure. "
+        "Supported by bake, bake_from_html, and bake_from_dsl actions.",
     ] = None,
     source_html: Annotated[
         str | None,
@@ -114,6 +119,13 @@ async def bake_ugui(
         bool,
         "Save a JSON snapshot to Baked/Json/ for version tracking. Default true.",
     ] = True,
+    font_path: Annotated[
+        str | None,
+        "Font asset path, Assets-relative (e.g. 'Assets/Fonts/MyFont.asset' for TMP or "
+        "'Assets/Fonts/MyFont.ttf' for legacy Text). When use_tmp=true, loaded as TMP_FontAsset; "
+        "when use_tmp=false, loaded as Font. If omitted, falls back to UguiBakeConfig defaults. "
+        "Supported by all bake actions.",
+    ] = None,
     json_array: Annotated[
         list[dict[str, Any]] | None,
         "Array of items for bake_batch. Each item: { json: '...', prefab_path: '...' } "
@@ -158,6 +170,8 @@ async def bake_ugui(
             params_dict["template_prefab"] = template_prefab
         if source_html is not None:
             params_dict["source_html"] = source_html
+        if font_path is not None:
+            params_dict["font_path"] = font_path
 
     elif action == "bake_batch":
         if json_array is None:
@@ -167,6 +181,8 @@ async def bake_ugui(
         params_dict["reference_width"] = reference_width
         params_dict["reference_height"] = reference_height
         params_dict["use_tmp"] = use_tmp
+        if font_path is not None:
+            params_dict["font_path"] = font_path
 
     elif action == "bake_partial":
         if prefab_path is None:
@@ -181,6 +197,8 @@ async def bake_ugui(
         params_dict["reference_width"] = reference_width
         params_dict["reference_height"] = reference_height
         params_dict["use_tmp"] = use_tmp
+        if font_path is not None:
+            params_dict["font_path"] = font_path
 
     elif action == "list":
         if output_dir is not None:
@@ -221,6 +239,10 @@ async def bake_ugui(
         params_dict["use_tmp"] = use_tmp
         if source_html is not None:
             params_dict["source_html"] = source_html
+        if template_prefab is not None:
+            params_dict["template_prefab"] = template_prefab
+        if font_path is not None:
+            params_dict["font_path"] = font_path
 
     elif action == "parse_dsl":
         if dsl_content is None:
@@ -241,6 +263,10 @@ async def bake_ugui(
         params_dict["use_tmp"] = use_tmp
         if source_html is not None:
             params_dict["source_html"] = source_html
+        if template_prefab is not None:
+            params_dict["template_prefab"] = template_prefab
+        if font_path is not None:
+            params_dict["font_path"] = font_path
 
     # Remove None values
     params_dict = {k: v for k, v in params_dict.items() if v is not None}

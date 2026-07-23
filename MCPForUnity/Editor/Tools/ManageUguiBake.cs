@@ -95,12 +95,13 @@ namespace MCPForUnity.Editor.Tools
             string templatePrefab = @params["template_prefab"]?.ToString();
             string sourceHtml = @params["source_html"]?.ToString();
             bool saveSnapshot = @params["save_snapshot"]?.Value<bool>() ?? true;
+            string fontPath = @params["font_path"]?.ToString();
 
             try
             {
                 var result = UguiBake.UguiBakeBridge.Bake(
                     jsonContent, prefabPath, width, height, useTMP,
-                    templatePrefab, sourceHtml, saveSnapshot);
+                    templatePrefab, sourceHtml, saveSnapshot, fontPath);
                 return ToResponse(result);
             }
             catch (Exception e)
@@ -121,6 +122,7 @@ namespace MCPForUnity.Editor.Tools
             int width = @params["reference_width"]?.Value<int>() ?? 942;
             int height = @params["reference_height"]?.Value<int>() ?? 2048;
             bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
+            string fontPath = @params["font_path"]?.ToString();
 
             try
             {
@@ -131,7 +133,7 @@ namespace MCPForUnity.Editor.Tools
                 else
                     jsonArrayStr = jsonToken.ToString();
 
-                var result = UguiBake.UguiBakeBridge.BakeBatch(jsonArrayStr, outputDir, width, height, useTMP);
+                var result = UguiBake.UguiBakeBridge.BakeBatch(jsonArrayStr, outputDir, width, height, useTMP, fontPath);
                 return ToResponse(result);
             }
             catch (Exception e)
@@ -158,10 +160,11 @@ namespace MCPForUnity.Editor.Tools
             int width = @params["reference_width"]?.Value<int>() ?? 942;
             int height = @params["reference_height"]?.Value<int>() ?? 2048;
             bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
+            string fontPath = @params["font_path"]?.ToString();
 
             try
             {
-                var result = UguiBake.UguiBakeBridge.BakePartial(prefabPath, nodePath, jsonContent, width, height, useTMP);
+                var result = UguiBake.UguiBakeBridge.BakePartial(prefabPath, nodePath, jsonContent, width, height, useTMP, fontPath);
                 return ToResponse(result);
             }
             catch (Exception e)
@@ -281,10 +284,12 @@ namespace MCPForUnity.Editor.Tools
             int height = @params["reference_height"]?.Value<int>() ?? 2048;
             bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
             string sourceHtml = @params["source_html"]?.ToString();
+            string templatePrefab = @params["template_prefab"]?.ToString();
+            string fontPath = @params["font_path"]?.ToString();
 
             try
             {
-                var result = UguiBake.UguiBakeBridge.BakeFromHtml(htmlContent, prefabPath, width, height, useTMP, sourceHtml);
+                var result = UguiBake.UguiBakeBridge.BakeFromHtml(htmlContent, prefabPath, width, height, useTMP, sourceHtml, templatePrefab, fontPath);
                 return ToResponse(result);
             }
             catch (Exception e)
@@ -331,10 +336,12 @@ namespace MCPForUnity.Editor.Tools
             int height = @params["reference_height"]?.Value<int>() ?? 2048;
             bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
             string sourceHtml = @params["source_html"]?.ToString();
+            string templatePrefab = @params["template_prefab"]?.ToString();
+            string fontPath = @params["font_path"]?.ToString();
 
             try
             {
-                var result = UguiBake.UguiBakeBridge.BakeFromDsl(dslContent, prefabPath, width, height, useTMP, sourceHtml);
+                var result = UguiBake.UguiBakeBridge.BakeFromDsl(dslContent, prefabPath, width, height, useTMP, sourceHtml, templatePrefab, fontPath);
                 return ToResponse(result);
             }
             catch (Exception e)

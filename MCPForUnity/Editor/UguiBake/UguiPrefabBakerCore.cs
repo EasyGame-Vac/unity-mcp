@@ -59,6 +59,39 @@ namespace MCPForUnity.Editor.UguiBake
             _imageResolveSourceHtml = null;
         }
 
+        // ──────────────────── 字体 Session ────────────────────
+
+        /// <summary>当前烘焙批次内使用的 TMP 字体（null 表示用 TMP 全局默认）。</summary>
+        static TMP_FontAsset _sessionTmpFont;
+        /// <summary>当前烘焙批次内使用的旧版 Text 字体（null 表示用系统默认）。</summary>
+        static Font _sessionLegacyFont;
+
+        public static void BeginFontSession(TMP_FontAsset tmpFont, Font legacyFont)
+        {
+            _sessionTmpFont = tmpFont;
+            _sessionLegacyFont = legacyFont;
+        }
+
+        public static void EndFontSession()
+        {
+            _sessionTmpFont = null;
+            _sessionLegacyFont = null;
+        }
+
+        /// <summary>将 Session 字体应用到 TMP 文本组件（若 Session 字体不为空）。</summary>
+        static void ApplySessionFont(TextMeshProUGUI txt)
+        {
+            if (_sessionTmpFont != null)
+                txt.font = _sessionTmpFont;
+        }
+
+        /// <summary>将 Session 字体应用到旧版 Text 组件（若 Session 字体不为空）。</summary>
+        static void ApplySessionFont(Text txt)
+        {
+            if (_sessionLegacyFont != null)
+                txt.font = _sessionLegacyFont;
+        }
+
         /// <summary>单色 <see cref="Image.color"/> 或 JSON 中的 <c>linearGradient</c>（顶点渐变）。</summary>
         static void ConfigureBakedBackgroundImage(Image img, UIDataNode nodeData, bool isBackdropBg)
         {
@@ -319,6 +352,7 @@ namespace MCPForUnity.Editor.UguiBake
                         txt.enableWordWrapping = isMultiLine;
                         txt.overflowMode = isMultiLine ? TextOverflowModes.Truncate : TextOverflowModes.Overflow;
                         txt.raycastTarget = false;
+                        ApplySessionFont(txt);
                     }
                     else
                     {
@@ -329,6 +363,7 @@ namespace MCPForUnity.Editor.UguiBake
                         txt.alignment = unityAlignment;
                         txt.supportRichText = true;
                         txt.raycastTarget = false;
+                        ApplySessionFont(txt);
                     }
                     return go.transform;
 
@@ -349,6 +384,7 @@ namespace MCPForUnity.Editor.UguiBake
                         btnTxt.enableWordWrapping = false;
                         btnTxt.overflowMode = TextOverflowModes.Overflow;
                         btnTxt.raycastTarget = false;
+                        ApplySessionFont(btnTxt);
                     }
                     else
                     {
@@ -359,6 +395,7 @@ namespace MCPForUnity.Editor.UguiBake
                         btnTxt.alignment = unityAlignment;
                         btnTxt.supportRichText = true;
                         btnTxt.raycastTarget = false;
+                        ApplySessionFont(btnTxt);
                     }
                     return go.transform;
 
@@ -384,6 +421,7 @@ namespace MCPForUnity.Editor.UguiBake
                         phTxt.alignment = alignment;
                         phTxt.enableWordWrapping = false;
                         phTxt.raycastTarget = false;
+                        ApplySessionFont(phTxt);
 
                         GameObject textGo = UguiPrefabBakerUtils.CreateChildRect(textAreaGo, "Text", Vector2.zero, Vector2.one);
                         TextMeshProUGUI inTxt = textGo.AddComponent<TextMeshProUGUI>();
@@ -392,6 +430,7 @@ namespace MCPForUnity.Editor.UguiBake
                         inTxt.alignment = alignment;
                         inTxt.enableWordWrapping = false;
                         inTxt.raycastTarget = false;
+                        ApplySessionFont(inTxt);
 
                         inputField.textViewport = textAreaGo.GetComponent<RectTransform>();
                         inputField.textComponent = inTxt;
@@ -415,6 +454,7 @@ namespace MCPForUnity.Editor.UguiBake
                         phTxt.alignment = unityAlignment;
                         phTxt.supportRichText = true;
                         phTxt.raycastTarget = false;
+                        ApplySessionFont(phTxt);
 
                         GameObject textGo = UguiPrefabBakerUtils.CreateChildRect(textAreaGo, "Text", Vector2.zero, Vector2.one);
                         Text inTxt = textGo.AddComponent<Text>();
@@ -423,6 +463,7 @@ namespace MCPForUnity.Editor.UguiBake
                         inTxt.alignment = unityAlignment;
                         inTxt.supportRichText = true;
                         inTxt.raycastTarget = false;
+                        ApplySessionFont(inTxt);
 
                         inputField.textComponent = inTxt;
                         inputField.placeholder = phTxt;
@@ -481,6 +522,7 @@ namespace MCPForUnity.Editor.UguiBake
                         tLblTxt.fontSize = fontSize;
                         tLblTxt.alignment = TextAlignmentOptions.MidlineLeft;
                         tLblTxt.enableWordWrapping = false;
+                        ApplySessionFont(tLblTxt);
                     }
                     else
                     {
@@ -490,6 +532,7 @@ namespace MCPForUnity.Editor.UguiBake
                         tLblTxt.fontSize = fontSize;
                         tLblTxt.alignment = TextAnchor.MiddleLeft;
                         tLblTxt.supportRichText = true;
+                        ApplySessionFont(tLblTxt);
                     }
 
                     toggle.targetGraphic = tBgImg;
@@ -535,6 +578,7 @@ namespace MCPForUnity.Editor.UguiBake
                         dLblTxt.fontSize = fontSize;
                         dLblTxt.alignment = TextAlignmentOptions.MidlineLeft;
                         dLblTxt.enableWordWrapping = false;
+                        ApplySessionFont(dLblTxt);
 
                         GameObject arrowGo = UguiPrefabBakerUtils.CreateChildRect(go, "Arrow", new Vector2(1, 0.5f), new Vector2(1, 0.5f));
                         RectTransform arrowRect = arrowGo.GetComponent<RectTransform>();
@@ -587,6 +631,7 @@ namespace MCPForUnity.Editor.UguiBake
                         itemLblTxt.fontSize = fontSize;
                         itemLblTxt.alignment = TextAlignmentOptions.MidlineLeft;
                         itemLblTxt.enableWordWrapping = false;
+                        ApplySessionFont(itemLblTxt);
 
                         itemToggle.targetGraphic = itemBgImg;
                         itemToggle.graphic = itemCheckImg;
@@ -617,6 +662,7 @@ namespace MCPForUnity.Editor.UguiBake
                         dLblTxt.fontSize = fontSize;
                         dLblTxt.alignment = TextAnchor.MiddleLeft;
                         dLblTxt.supportRichText = true;
+                        ApplySessionFont(dLblTxt);
 
                         GameObject arrowGo = UguiPrefabBakerUtils.CreateChildRect(go, "Arrow", new Vector2(1, 0.5f), new Vector2(1, 0.5f));
                         RectTransform arrowRect = arrowGo.GetComponent<RectTransform>();
@@ -669,6 +715,7 @@ namespace MCPForUnity.Editor.UguiBake
                         itemLblTxt.fontSize = fontSize;
                         itemLblTxt.alignment = TextAnchor.MiddleLeft;
                         itemLblTxt.supportRichText = true;
+                        ApplySessionFont(itemLblTxt);
 
                         itemToggle.targetGraphic = itemBgImg;
                         itemToggle.graphic = itemCheckImg;
@@ -727,7 +774,7 @@ namespace MCPForUnity.Editor.UguiBake
             }
         }
 
-        public static bool TryBakeJsonStringToPrefab(string jsonContent, string prefabAssetPath, Vector2 refSize, GameObject templatePagePrefab, string sourceHtmlAssetPath, out string error, bool useTMPText = true, bool applyCanvasScaler = true)
+        public static bool TryBakeJsonStringToPrefab(string jsonContent, string prefabAssetPath, Vector2 refSize, GameObject templatePagePrefab, string sourceHtmlAssetPath, out string error, bool useTMPText = true, bool applyCanvasScaler = true, TMP_FontAsset tmpFont = null, Font legacyFont = null)
         {
             error = null;
             prefabAssetPath = prefabAssetPath?.Replace("\\", "/").Trim();
@@ -749,6 +796,7 @@ namespace MCPForUnity.Editor.UguiBake
             var rootNode = ParseUiDataJson(jsonContent);
             string resolveHtml = !string.IsNullOrEmpty(rootNode.sourceHtml) ? rootNode.sourceHtml : sourceHtmlAssetPath;
             BeginImageResolveSession(resolveHtml);
+            BeginFontSession(tmpFont, legacyFont);
             try
             {
             UguiPrefabBakerUtils.EnsureAssetFoldersForPath(prefabAssetPath);
@@ -819,6 +867,7 @@ namespace MCPForUnity.Editor.UguiBake
             finally
             {
                 EndImageResolveSession();
+                EndFontSession();
             }
         }
 

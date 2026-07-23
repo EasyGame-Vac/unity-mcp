@@ -14,6 +14,8 @@ using UnityEngine.UI;
 using UnityEditor;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using TMPro;
+using MCPForUnity.Runtime.UguiBake;
 
 namespace MCPForUnity.Editor.UguiBake
 {
@@ -50,7 +52,8 @@ namespace MCPForUnity.Editor.UguiBake
             bool useTMP = true,
             string templatePrefabPath = null,
             string sourceHtmlPath = null,
-            bool saveSnapshot = true)
+            bool saveSnapshot = true,
+            string fontPath = null)
         {
             var result = new Dictionary<string, object>();
 
@@ -120,7 +123,12 @@ namespace MCPForUnity.Editor.UguiBake
                     return ErrorResult($"模板预制体未找到: {templatePrefabPath}");
             }
 
-            // 8. 执行烘焙
+            // 8. 加载字体
+            TMP_FontAsset tmpFont = null;
+            Font legacyFont = null;
+            LoadFonts(fontPath, useTMP, out tmpFont, out legacyFont);
+
+            // 9. 执行烘焙
             var refSize = new Vector2(width, height);
             string bakeError;
 
@@ -135,19 +143,27 @@ namespace MCPForUnity.Editor.UguiBake
                     sourceHtmlPath,
                     out bakeError,
                     useTMP,
-                    true);
+                    true,
+                    tmpFont,
+                    legacyFont);
             }
             catch (Exception e)
             {
                 return ErrorResult($"烘焙异常: {e.Message}");
             }
 
-            // 9. 构建结果
+            // 10. 构建结果
             result["success"] = success;
             result["prefabPath"] = prefabPath;
             result["pageName"] = pageName;
             result["resolution"] = new { width, height };
             result["useTMP"] = useTMP;
+            if (!string.IsNullOrEmpty(fontPath))
+                result["fontPath"] = fontPath;
+            if (tmpFont != null)
+                result["tmpFont"] = tmpFont.name;
+            if (legacyFont != null)
+                result["legacyFont"] = legacyFont.name;
             if (snapshotPath != null)
                 result["jsonSnapshot"] = snapshotPath;
             if (backupPath != null)
@@ -182,7 +198,8 @@ namespace MCPForUnity.Editor.UguiBake
             string outputDir,
             int width = 942,
             int height = 2048,
-            bool useTMP = true)
+            bool useTMP = true,
+            string fontPath = null)
         {
             var result = new Dictionary<string, object>();
 
@@ -251,7 +268,7 @@ namespace MCPForUnity.Editor.UguiBake
                     itemPrefabPath = $"{outputDir}/{pageName}.prefab";
                 }
 
-                var bakeResult = Bake(itemJson, itemPrefabPath, width, height, useTMP);
+                var bakeResult = Bake(itemJson, itemPrefabPath, width, height, useTMP, null, null, true, fontPath);
                 results.Add(bakeResult);
 
                 if (bakeResult.TryGetValue("success", out var suc) && suc is bool b && b)
@@ -288,7 +305,8 @@ namespace MCPForUnity.Editor.UguiBake
             string jsonContent,
             int width = 942,
             int height = 2048,
-            bool useTMP = true)
+            bool useTMP = true,
+            string fontPath = null)
         {
             var result = new Dictionary<string, object>();
 
@@ -342,7 +360,13 @@ namespace MCPForUnity.Editor.UguiBake
                 float pw = rect != null ? rect.rect.width : width;
                 float ph = rect != null ? rect.rect.height : height;
 
+                // 加载字体
+                TMP_FontAsset tmpFont = null;
+                Font legacyFont = null;
+                LoadFonts(fontPath, useTMP, out tmpFont, out legacyFont);
+
                 UguiPrefabBakerCore.BeginImageResolveSession(null);
+                UguiPrefabBakerCore.BeginFontSession(tmpFont, legacyFont);
                 try
                 {
                     if (rootNode.children != null && rootNode.children.Count > 0)
@@ -358,6 +382,7 @@ namespace MCPForUnity.Editor.UguiBake
                 finally
                 {
                     UguiPrefabBakerCore.EndImageResolveSession();
+                    UguiPrefabBakerCore.EndFontSession();
                 }
 
                 // 保存
@@ -516,7 +541,9 @@ namespace MCPForUnity.Editor.UguiBake
             int width = 942,
             int height = 2048,
             bool useTMP = true,
-            string sourceHtmlPath = null)
+            string sourceHtmlPath = null,
+            string templatePrefabPath = null,
+            string fontPath = null)
         {
             if (string.IsNullOrWhiteSpace(dslContent))
                 return ErrorResult("dslContent 不能为空");
@@ -538,7 +565,7 @@ namespace MCPForUnity.Editor.UguiBake
             }
 
             // 2. 烘焙 JSON → 预制体
-            var bakeResult = Bake(json, prefabPath, width, height, useTMP, null, sourceHtmlPath);
+            var bakeResult = Bake(json, prefabPath, width, height, useTMP, templatePrefabPath, sourceHtmlPath, true, fontPath);
             if (dslWarnings != null && dslWarnings.Count > 0)
                 bakeResult["dslWarnings"] = dslWarnings;
             return bakeResult;
@@ -594,7 +621,9 @@ namespace MCPForUnity.Editor.UguiBake
             int width = 942,
             int height = 2048,
             bool useTMP = true,
-            string sourceHtmlPath = null)
+            string sourceHtmlPath = null,
+            string templatePrefabPath = null,
+            string fontPath = null)
         {
             if (string.IsNullOrWhiteSpace(htmlContent))
                 return ErrorResult("htmlContent 不能为空");
@@ -613,7 +642,7 @@ namespace MCPForUnity.Editor.UguiBake
             }
 
             // 2. 烘焙 JSON → 预制体
-            return Bake(json, prefabPath, width, height, useTMP, null, sourceHtmlPath);
+            return Bake(json, prefabPath, width, height, useTMP, templatePrefabPath, sourceHtmlPath, true, fontPath);
         }
 
         static int CountNodes(UIDataNode node)
@@ -723,8 +752,8 @@ namespace MCPForUnity.Editor.UguiBake
             if (string.IsNullOrEmpty(content))
                 return null;
 
-            const string startMarker = "## 三、";
-            const string endMarker = "## 四、";
+            const string startMarker = "## 四、";
+            const string endMarker = "## 五、";
             int start = content.IndexOf(startMarker, StringComparison.Ordinal);
             if (start < 0)
                 return null;
@@ -793,6 +822,59 @@ namespace MCPForUnity.Editor.UguiBake
             result["message"] = $"生成 View 脚本: {className} ({bindings.Count} 个绑定)";
 
             return result;
+        }
+
+        // ──────────────────── 字体加载 ────────────────────
+
+        /// <summary>
+        /// 加载字体资源。优先从 fontPath 加载，其次从 UguiBakeConfig 配置加载默认字体。
+        /// </summary>
+        static void LoadFonts(string fontPath, bool useTMP, out TMP_FontAsset tmpFont, out Font legacyFont)
+        {
+            tmpFont = null;
+            legacyFont = null;
+
+            if (!string.IsNullOrEmpty(fontPath))
+            {
+                fontPath = fontPath.Replace("\\", "/").Trim();
+                if (useTMP)
+                {
+                    tmpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(fontPath);
+                    if (tmpFont == null)
+                        Debug.LogWarning($"[UguiBakeBridge] 无法加载 TMP 字体: {fontPath}");
+                }
+                else
+                {
+                    legacyFont = AssetDatabase.LoadAssetAtPath<Font>(fontPath);
+                    if (legacyFont == null)
+                        Debug.LogWarning($"[UguiBakeBridge] 无法加载旧版字体: {fontPath}");
+                }
+            }
+
+            // 如果未指定 fontPath 或加载失败，从配置加载默认字体
+            if ((useTMP && tmpFont == null) || (!useTMP && legacyFont == null))
+            {
+                var config = FindBakeConfig();
+                if (config != null)
+                {
+                    if (useTMP && tmpFont == null)
+                        tmpFont = config.defaultTmpFont;
+                    if (!useTMP && legacyFont == null)
+                        legacyFont = config.defaultLegacyFont;
+                }
+            }
+        }
+
+        /// <summary>查找工程中的 UguiBakeConfig 配置资源。</summary>
+        static UguiBakeConfig FindBakeConfig()
+        {
+            var guids = AssetDatabase.FindAssets("t:UguiBakeConfig");
+            if (guids.Length > 0)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                return AssetDatabase.LoadAssetAtPath<UguiBakeConfig>(path);
+            }
+            return null;
         }
 
         // ──────────────────── 内部工具方法 ────────────────────

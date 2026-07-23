@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using TMPro;
 
 namespace MCPForUnity.Runtime.UguiBake
 {
@@ -31,5 +32,19 @@ namespace MCPForUnity.Runtime.UguiBake
         [Header("DSL 文档模板 (.md 文件)")]
         [Tooltip("请拖入包含 {WIDTH} 和 {HEIGHT} 占位符的 Markdown 模板文件")]
         public TextAsset dslTemplateAsset;
+
+        [Header("文本组件设置")]
+        [Tooltip("勾选使用 TextMeshPro (TMP)，取消勾选使用旧版 UnityEngine.UI.Text")]
+        public bool useTMPText = true;
+
+        [Tooltip("TMP 默认字体资源（留空则使用 TMP 全局默认字体）")]
+        public TMP_FontAsset defaultTmpFont;
+
+        [Tooltip("旧版 Text 默认字体（留空则使用系统默认字体）")]
+        public Font defaultLegacyFont;
+
+        [Header("页面模板预制体")]
+        [Tooltip("默认页面模板预制体（根节点需有 Canvas 组件）。留空则从零创建 Canvas。")]
+        public GameObject defaultTemplatePrefab;
     }
 }
