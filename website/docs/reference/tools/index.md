@@ -80,6 +80,10 @@ Test runner & async test jobs
 - **[`get_test_job`](./testing/get_test_job.md)** — Polls an async Unity test job by job_id.
 - **[`run_tests`](./testing/run_tests.md)** — Starts a Unity test run asynchronously and returns a job_id immediately.
 
+## `ugui` &nbsp; (1 tool)
+uGUI (Canvas, RectTransform, Image, Text, Button) template creation
+- **[`manage_ui_template`](./ugui/manage_ui_template.md)** — Creates and manages uGUI (Canvas-based) UI template GameObjects in Unity.
+
 ## `ui` &nbsp; (1 tool)
 UI Toolkit (UXML, USS, UIDocument)
 - **[`manage_ui`](./ui/manage_ui.md)** — Manages Unity UI Toolkit elements (UXML documents, USS stylesheets, UIDocument components).
