@@ -1,13 +1,12 @@
 // ManageUguiBake.cs
-// MCP 工具：将 HtmlToUGUI 烘焙能力暴露为标准 MCP 工具 bake_ugui。
-// 通过反射调用 UguiBakeBridge / HtmlToUGUIBakerCore，避免编译时依赖。
+// MCP 工具：内置 UGUI 烘焙能力，暴露为标准 MCP 工具 bake_ugui。
+// 核心实现位于 MCPForUnity.Editor.UguiBake 命名空间，零外部依赖。
 //
 // 注册方式：[McpForUnityTool("bake_ugui", Group = "core")]
 // Python 端对应文件：Server/src/services/tools/bake_ugui.py
 
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using MCPForUnity.Editor.Helpers;
 using MCPForUnity.Runtime.Helpers;
 using Newtonsoft.Json.Linq;
@@ -31,38 +30,6 @@ namespace MCPForUnity.Editor.Tools
         private const string ActionBakeFromHtml = "bake_from_html";
         private const string ActionParseDsl = "parse_dsl";
         private const string ActionBakeFromDsl = "bake_from_dsl";
-
-        // ──────────────────── 反射缓存 ────────────────────
-
-        private static Type _bridgeType;
-        private static bool _bridgeTypeResolved;
-
-        /// <summary>
-        /// 通过反射查找 UguiBakeBridge 类型（在 HtmlToUGUI.Editor 程序集中）。
-        /// </summary>
-        private static Type ResolveBridgeType()
-        {
-            if (_bridgeTypeResolved)
-                return _bridgeType;
-
-            _bridgeTypeResolved = true;
-
-            foreach (var assembly in UnityAssembliesCompat.GetLoadedAssemblies())
-            {
-                try
-                {
-                    var type = assembly.GetType("HtmlToUGUI.Editor.UguiBakeBridge");
-                    if (type != null)
-                    {
-                        _bridgeType = type;
-                        return type;
-                    }
-                }
-                catch { /* 忽略 */ }
-            }
-
-            return null;
-        }
 
         // ──────────────────── 命令处理 ────────────────────
 
@@ -114,11 +81,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleBake(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse(
-                    "UguiBakeBridge not found. Ensure HtmlToUGUI package is installed in the Unity project.");
-
             string jsonContent = @params["json_content"]?.ToString();
             if (string.IsNullOrWhiteSpace(jsonContent))
                 return new ErrorResponse("Required parameter 'json_content' is missing or empty.");
@@ -136,27 +98,10 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                var method = bridge.GetMethod("Bake", BindingFlags.Public | BindingFlags.Static,
-                    null, new[]
-                    {
-                        typeof(string), typeof(string), typeof(int), typeof(int),
-                        typeof(bool), typeof(string), typeof(string), typeof(bool)
-                    }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.Bake method not found.");
-
-                var result = method.Invoke(null, new object[]
-                {
+                var result = UguiBake.UguiBakeBridge.Bake(
                     jsonContent, prefabPath, width, height, useTMP,
-                    templatePrefab, sourceHtml, saveSnapshot
-                });
-
+                    templatePrefab, sourceHtml, saveSnapshot);
                 return ToResponse(result);
-            }
-            catch (TargetInvocationException tie)
-            {
-                return new ErrorResponse($"Bake failed: {tie.InnerException?.Message ?? tie.Message}");
             }
             catch (Exception e)
             {
@@ -168,10 +113,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleBakeBatch(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string jsonArray = @params["json_array"]?.ToString();
             if (string.IsNullOrWhiteSpace(jsonArray))
                 return new ErrorResponse("Required parameter 'json_array' is missing or empty.");
@@ -183,7 +124,6 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                // json_array 可以是 JSON 数组字符串，也可以直接是 JArray
                 string jsonArrayStr;
                 var jsonToken = @params["json_array"];
                 if (jsonToken.Type == JTokenType.Array)
@@ -191,18 +131,8 @@ namespace MCPForUnity.Editor.Tools
                 else
                     jsonArrayStr = jsonToken.ToString();
 
-                var method = bridge.GetMethod("BakeBatch", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string), typeof(string), typeof(int), typeof(int), typeof(bool) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.BakeBatch method not found.");
-
-                var result = method.Invoke(null, new object[] { jsonArrayStr, outputDir, width, height, useTMP });
+                var result = UguiBake.UguiBakeBridge.BakeBatch(jsonArrayStr, outputDir, width, height, useTMP);
                 return ToResponse(result);
-            }
-            catch (TargetInvocationException tie)
-            {
-                return new ErrorResponse($"BakeBatch failed: {tie.InnerException?.Message ?? tie.Message}");
             }
             catch (Exception e)
             {
@@ -214,10 +144,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleBakePartial(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string prefabPath = @params["prefab_path"]?.ToString();
             string nodePath = @params["node_path"]?.ToString();
             string jsonContent = @params["json_content"]?.ToString();
@@ -235,18 +161,8 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                var method = bridge.GetMethod("BakePartial", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string), typeof(string), typeof(string), typeof(int), typeof(int), typeof(bool) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.BakePartial method not found.");
-
-                var result = method.Invoke(null, new object[] { prefabPath, nodePath, jsonContent, width, height, useTMP });
+                var result = UguiBake.UguiBakeBridge.BakePartial(prefabPath, nodePath, jsonContent, width, height, useTMP);
                 return ToResponse(result);
-            }
-            catch (TargetInvocationException tie)
-            {
-                return new ErrorResponse($"BakePartial failed: {tie.InnerException?.Message ?? tie.Message}");
             }
             catch (Exception e)
             {
@@ -258,26 +174,16 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleList(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string searchDir = @params["output_dir"]?.ToString();
 
             try
             {
-                var method = bridge.GetMethod("ListBaked", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.ListBaked method not found.");
-
-                var result = method.Invoke(null, new object[] { searchDir });
+                var result = UguiBake.UguiBakeBridge.ListBaked(searchDir);
                 return ToResponse(result);
             }
-            catch (TargetInvocationException tie)
+            catch (Exception e)
             {
-                return new ErrorResponse($"List failed: {tie.InnerException?.Message ?? tie.Message}");
+                return new ErrorResponse($"List failed: {e.Message}");
             }
         }
 
@@ -285,28 +191,18 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleDelete(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string prefabPath = @params["prefab_path"]?.ToString();
             if (string.IsNullOrWhiteSpace(prefabPath))
                 return new ErrorResponse("Required parameter 'prefab_path' is missing.");
 
             try
             {
-                var method = bridge.GetMethod("DeleteBaked", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.DeleteBaked method not found.");
-
-                var result = method.Invoke(null, new object[] { prefabPath });
+                var result = UguiBake.UguiBakeBridge.DeleteBaked(prefabPath);
                 return ToResponse(result);
             }
-            catch (TargetInvocationException tie)
+            catch (Exception e)
             {
-                return new ErrorResponse($"Delete failed: {tie.InnerException?.Message ?? tie.Message}");
+                return new ErrorResponse($"Delete failed: {e.Message}");
             }
         }
 
@@ -314,24 +210,14 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleGetDsl()
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             try
             {
-                var method = bridge.GetMethod("GetDsl", BindingFlags.Public | BindingFlags.Static,
-                    null, Type.EmptyTypes, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.GetDsl method not found.");
-
-                var result = method.Invoke(null, null);
+                var result = UguiBake.UguiBakeBridge.GetDsl();
                 return ToResponse(result);
             }
-            catch (TargetInvocationException tie)
+            catch (Exception e)
             {
-                return new ErrorResponse($"GetDsl failed: {tie.InnerException?.Message ?? tie.Message}");
+                return new ErrorResponse($"GetDsl failed: {e.Message}");
             }
         }
 
@@ -339,10 +225,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleGenerateScript(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string prefabPath = @params["prefab_path"]?.ToString();
             if (string.IsNullOrWhiteSpace(prefabPath))
                 return new ErrorResponse("Required parameter 'prefab_path' is missing.");
@@ -352,18 +234,12 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                var method = bridge.GetMethod("GenerateViewScript", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string), typeof(string), typeof(string) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.GenerateViewScript method not found.");
-
-                var result = method.Invoke(null, new object[] { prefabPath, scriptPath, namespaceName });
+                var result = UguiBake.UguiBakeBridge.GenerateViewScript(prefabPath, scriptPath, namespaceName);
                 return ToResponse(result);
             }
-            catch (TargetInvocationException tie)
+            catch (Exception e)
             {
-                return new ErrorResponse($"GenerateViewScript failed: {tie.InnerException?.Message ?? tie.Message}");
+                return new ErrorResponse($"GenerateViewScript failed: {e.Message}");
             }
         }
 
@@ -371,10 +247,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleParseHtml(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string htmlContent = @params["html_content"]?.ToString();
             if (string.IsNullOrWhiteSpace(htmlContent))
                 return new ErrorResponse("Required parameter 'html_content' is missing or empty.");
@@ -384,18 +256,8 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                var method = bridge.GetMethod("ParseHtml", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string), typeof(int), typeof(int) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.ParseHtml method not found.");
-
-                var result = method.Invoke(null, new object[] { htmlContent, width, height });
+                var result = UguiBake.UguiBakeBridge.ParseHtml(htmlContent, width, height);
                 return ToResponse(result);
-            }
-            catch (TargetInvocationException tie)
-            {
-                return new ErrorResponse($"ParseHtml failed: {tie.InnerException?.Message ?? tie.Message}");
             }
             catch (Exception e)
             {
@@ -407,10 +269,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleBakeFromHtml(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string htmlContent = @params["html_content"]?.ToString();
             if (string.IsNullOrWhiteSpace(htmlContent))
                 return new ErrorResponse("Required parameter 'html_content' is missing or empty.");
@@ -426,18 +284,8 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                var method = bridge.GetMethod("BakeFromHtml", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string), typeof(string), typeof(int), typeof(int), typeof(bool), typeof(string) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.BakeFromHtml method not found.");
-
-                var result = method.Invoke(null, new object[] { htmlContent, prefabPath, width, height, useTMP, sourceHtml });
+                var result = UguiBake.UguiBakeBridge.BakeFromHtml(htmlContent, prefabPath, width, height, useTMP, sourceHtml);
                 return ToResponse(result);
-            }
-            catch (TargetInvocationException tie)
-            {
-                return new ErrorResponse($"BakeFromHtml failed: {tie.InnerException?.Message ?? tie.Message}");
             }
             catch (Exception e)
             {
@@ -449,10 +297,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleParseDsl(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string dslContent = @params["dsl_content"]?.ToString();
             if (string.IsNullOrWhiteSpace(dslContent))
                 return new ErrorResponse("Required parameter 'dsl_content' is missing or empty.");
@@ -462,18 +306,8 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                var method = bridge.GetMethod("ParseDsl", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string), typeof(int), typeof(int) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.ParseDsl method not found.");
-
-                var result = method.Invoke(null, new object[] { dslContent, width, height });
+                var result = UguiBake.UguiBakeBridge.ParseDsl(dslContent, width, height);
                 return ToResponse(result);
-            }
-            catch (TargetInvocationException tie)
-            {
-                return new ErrorResponse($"ParseDsl failed: {tie.InnerException?.Message ?? tie.Message}");
             }
             catch (Exception e)
             {
@@ -485,10 +319,6 @@ namespace MCPForUnity.Editor.Tools
 
         private static object HandleBakeFromDsl(JObject @params)
         {
-            var bridge = ResolveBridgeType();
-            if (bridge == null)
-                return new ErrorResponse("UguiBakeBridge not found.");
-
             string dslContent = @params["dsl_content"]?.ToString();
             if (string.IsNullOrWhiteSpace(dslContent))
                 return new ErrorResponse("Required parameter 'dsl_content' is missing or empty.");
@@ -504,18 +334,8 @@ namespace MCPForUnity.Editor.Tools
 
             try
             {
-                var method = bridge.GetMethod("BakeFromDsl", BindingFlags.Public | BindingFlags.Static,
-                    null, new[] { typeof(string), typeof(string), typeof(int), typeof(int), typeof(bool), typeof(string) }, null);
-
-                if (method == null)
-                    return new ErrorResponse("UguiBakeBridge.BakeFromDsl method not found.");
-
-                var result = method.Invoke(null, new object[] { dslContent, prefabPath, width, height, useTMP, sourceHtml });
+                var result = UguiBake.UguiBakeBridge.BakeFromDsl(dslContent, prefabPath, width, height, useTMP, sourceHtml);
                 return ToResponse(result);
-            }
-            catch (TargetInvocationException tie)
-            {
-                return new ErrorResponse($"BakeFromDsl failed: {tie.InnerException?.Message ?? tie.Message}");
             }
             catch (Exception e)
             {
@@ -526,14 +346,13 @@ namespace MCPForUnity.Editor.Tools
         // ──────────────────── 工具方法 ────────────────────
 
         /// <summary>
-        /// 将反射调用的返回值（Dictionary&lt;string, object&gt;）转换为 MCP 响应。
+        /// 将桥接层返回值（Dictionary&lt;string, object&gt;）转换为 MCP 响应。
         /// </summary>
         private static object ToResponse(object result)
         {
             if (result == null)
                 return new SuccessResponse("Operation completed (no data returned).");
 
-            // 尝试获取 success 字段
             if (result is IDictionary<string, object> dict)
             {
                 bool success = true;
@@ -544,7 +363,6 @@ namespace MCPForUnity.Editor.Tools
                                  dict.TryGetValue("error", out var err) ? err?.ToString() :
                                  "Operation completed.";
 
-                // 将 Dictionary 转为 JObject
                 var data = JObject.FromObject(dict);
                 if (success)
                     return new SuccessResponse(message, data);
