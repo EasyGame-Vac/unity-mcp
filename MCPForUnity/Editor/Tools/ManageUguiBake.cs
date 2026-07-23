@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace MCPForUnity.Editor.Tools
 {
-    [McpForUnityTool("bake_ugui", AutoRegister = false, Group = "core")]
+    [McpForUnityTool("bake_ugui", AutoRegister = true, Group = "core")]
     public static class ManageUguiBake
     {
         // ──────────────────── Action 常量 ────────────────────
