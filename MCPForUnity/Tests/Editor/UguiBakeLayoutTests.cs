@@ -7,6 +7,7 @@ using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
 using MCPForUnity.Editor.UguiBake;
+using MCPForUnity.Editor.Bake;
 
 namespace MCPForUnity.Tests.Editor
 {

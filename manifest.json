@@ -34,6 +34,14 @@
       "description": "Apply text edits to script content"
     },
     {
+      "name": "bake_ugui",
+      "description": "Bake UGUI prefabs from UI-DSL HTML via the built-in UguiBake pipeline"
+    },
+    {
+      "name": "bake_vfx",
+      "description": "Bake particle VFX prefabs from VFX-DSL JSON via the built-in VfxBake pipeline"
+    },
+    {
       "name": "batch_execute",
       "description": "Execute multiple Unity operations in a single batch"
     },

@@ -7,6 +7,7 @@ Complete reference for all MCP tools. Each tool includes parameters, types, and 
 ## Table of Contents
 
 - [Infrastructure Tools](#infrastructure-tools)
+- [Bake Tools](#bake-tools)
 - [Scene Tools](#scene-tools)
 - [GameObject Tools](#gameobject-tools)
 - [Script Tools](#script-tools)
@@ -97,6 +98,79 @@ refresh_unity(
     wait_for_ready=True          # bool - wait until editor ready
 )
 ```
+
+---
+
+## Bake Tools
+
+### bake_ugui
+
+Bake UGUI prefabs from UI-DSL HTML via the built-in UguiBake pipeline. The AI assistant converts arbitrary input (natural language, screenshots, existing HTML) into standard UI-DSL HTML, then calls this tool to bake.
+
+```python
+# Bake HTML → prefab
+bake_ugui(
+    action="bake_from_html",
+    html_content="<div data-u-type='panel'>...</div>",  # str, UI-DSL HTML (or use html_path)
+    html_path=None,                # str, optional - path to .ugui.html file (alternative to html_content)
+    prefab_path="Assets/Baked/MyPanel.prefab",  # str, required - output prefab path
+    reference_width=1920,          # int, default 942 - design resolution width
+    reference_height=1080,         # int, default 2048 - design resolution height
+    use_tmp=True,                  # bool, default True - use TextMeshPro vs legacy Text
+    template_prefab=None,          # str, optional - template prefab with Canvas
+    font_path=None,                # str, optional - custom font asset path
+    source_html=None,              # str, optional - source HTML path for image resolution
+    attach_script=None,            # str, optional - MonoBehaviour type to attach to root
+    user_input_content=None,       # str, optional - save original user input beside prefab
+    user_input_extension="txt",    # str, default "txt"
+    user_input_source_path=None    # str, optional - copy user input file beside prefab
+)
+
+# List baked prefabs
+bake_ugui(action="list", output_dir=None)  # output_dir default: Assets/MCP/UguiBake/Baked/Prefabs
+
+# Delete a baked prefab
+bake_ugui(action="delete", prefab_path="Assets/Baked/MyPanel.prefab")
+
+# Get UI-DSL HTML spec (call before authoring HTML)
+bake_ugui(action="get_spec")
+
+# Generate C# View script with field bindings
+bake_ugui(
+    action="generate_view_script",
+    prefab_path="Assets/Baked/MyPanel.prefab",
+    script_path=None,              # str, optional - derived from prefab path if omitted
+    namespace="Game.UI"            # str, default "Game.UI"
+)
+```
+
+Key workflow: call `get_spec` first to get the DSL format, author HTML with `data-u-type` and `data-u-name` attributes, then `bake_from_html`. The baked HTML is returned in the result as `htmlContent`.
+
+### bake_vfx
+
+Bake particle VFX prefabs from VFX-DSL JSON via the built-in VfxBake pipeline. The AI assistant converts arbitrary input (natural language, reference descriptions) into standard VFX-DSL JSON, then calls this tool to bake.
+
+```python
+# Bake JSON → prefab
+bake_vfx(
+    action="bake_from_json",
+    json_content='{"name":"Explosion","systems":[...]}',  # str, VFX-DSL JSON (or use json_path)
+    json_path=None,                # str, optional - path to .json file (alternative to json_content)
+    prefab_path="Assets/Vfx/Explosion_Fire.prefab",  # str, required - output prefab path
+    source_json=None               # str, optional - source JSON path for traceability
+)
+
+# List baked prefabs
+bake_vfx(action="list", output_dir=None)  # output_dir default: Assets/MCP/VfxBake/Baked/Prefabs
+
+# Delete a baked prefab
+bake_vfx(action="delete", prefab_path="Assets/Vfx/Explosion_Fire.prefab")
+
+# Get VFX-DSL JSON spec (call before authoring JSON)
+bake_vfx(action="get_spec")
+```
+
+JSON structure: `{name, systems:[{name, transform, main, emission, shape, colorOverLifetime, sizeOverLifetime, velocityOverLifetime, textureSheetAnimation, trails, noise, renderer, children}]}`. Numbers accept scalar or `[min,max]`; colors accept hex (`#rgb`/`#rrggbbaa`); curves accept `[[t,v],...]` keyframe arrays. The baked prefab root carries a `VfxAutoDestroy` component.
 
 ---
 

@@ -1,5 +1,6 @@
 // BakeReport.cs
-// UguiBake 烘焙报告系统：收集烘焙流程中的度量、警告与错误，并生成汇总摘要。
+// 烘焙报告系统（公共层）：收集烘焙流程中的度量、警告与错误，并生成汇总摘要。
+// 管线无关，UguiBake / VfxBake 等所有烘焙管线共用。
 // 贯穿 parse → layout → build → bake → validate 各阶段，用于诊断与可观测性。
 //
 // 使用方式：
@@ -21,7 +22,7 @@ using System.Diagnostics;
 using System.Text;
 using UnityEngine;
 
-namespace MCPForUnity.Editor.UguiBake
+namespace MCPForUnity.Editor.Bake
 {
     /// <summary>
     /// 单条烘焙日志条目：记录时间戳、级别、阶段、消息及可选耗时。
@@ -117,6 +118,9 @@ namespace MCPForUnity.Editor.UguiBake
         /// <summary>烘焙是否成功。</summary>
         public bool Success;
 
+        /// <summary>汇总报告标题（默认 UguiBake；其它管线可覆盖，如 VfxBake）。</summary>
+        public string Title = "UguiBake 烘焙报告";
+
         // ──────────────────── 生命周期 ────────────────────
 
         /// <summary>创建报告并启动计时器。</summary>
@@ -211,7 +215,7 @@ namespace MCPForUnity.Editor.UguiBake
             int errorCount = CountLevel("error");
             var sb = new StringBuilder();
 
-            sb.AppendLine("══════════════ UguiBake 烘焙报告 ══════════════");
+            sb.AppendLine($"══════════════ {Title} ══════════════");
             sb.AppendLine($"  预制体路径 : {PrefabPath ?? "(未指定)"}");
             sb.AppendLine($"  源格式     : {SourceFormat ?? "(未指定)"}");
             sb.AppendLine($"  结果       : {(Success ? "成功" : "失败")}");

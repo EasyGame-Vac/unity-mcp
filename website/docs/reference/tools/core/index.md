@@ -9,6 +9,8 @@ description: "MCP for Unity tools in the core group."
 Essential scene, script, asset & editor tools (always on by default)
 
 - **[`apply_text_edits`](./apply_text_edits.md)** — Apply small text edits to a C# script identified by URI.
+- **[`bake_ugui`](./bake_ugui.md)** — Bake UGUI prefabs from UI-DSL HTML via the built-in UguiBake pipeline.
+- **[`bake_vfx`](./bake_vfx.md)** — Bake particle VFX prefabs from VFX-DSL JSON via the built-in VfxBake pipeline.
 - **[`batch_execute`](./batch_execute.md)** — Executes multiple MCP commands in a single batch for dramatically better performance.
 - **[`create_script`](./create_script.md)** — Create a new C# script at the given project path.
 - **[`debug_request_context`](./debug_request_context.md)** — Return the current FastMCP request context details (client_id, session_id, and meta dump).
