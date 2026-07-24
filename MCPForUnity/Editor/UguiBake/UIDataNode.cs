@@ -65,6 +65,15 @@ namespace MCPForUnity.Editor.UguiBake
         /// <summary>源 HTML 的 Assets 相对路径（如 Assets/_Test/TempPage/battle-record.html），用于将 <see cref="image"/> 相对路径解析为工程内 Sprite。</summary>
         [Newtonsoft.Json.JsonProperty("sourceHtml")]
         public string sourceHtml;
+        /// <summary>自适应尺寸模式：none(默认) | horizontal | vertical | both。启用后烘焙时挂载 ContentSizeFitter。</summary>
+        [Newtonsoft.Json.JsonProperty("autoSize")]
+        public string autoSize;
+        /// <summary>是否挂载 SafeAreaHelper 组件以适配刘海屏/圆角边框。仅在根节点生效。</summary>
+        [Newtonsoft.Json.JsonProperty("safeArea")]
+        public bool safeArea;
+        /// <summary>CanvasScaler 的 matchWidthOrHeight 值（0=完全匹配宽度，1=完全匹配高度，0.5=平衡）。仅根节点生效，默认 0.5。</summary>
+        [Newtonsoft.Json.JsonProperty("scalerMatch")]
+        public float scalerMatch = 0.5f;
         public List<UIDataNode> children;
     }
 }

@@ -31,6 +31,25 @@ namespace MCPForUnity.Editor.UguiBake
     /// </summary>
     public static class HtmlToUguiParser
     {
+        // ──────────────────── 布局结果缓存 ────────────────────
+
+        static readonly int _cacheCapacity = 16;
+        static readonly Dictionary<string, UIDataNode> _layoutCache = new Dictionary<string, UIDataNode>();
+        static readonly List<string> _cacheKeys = new List<string>();
+
+        static string GetCacheKey(string html, int width, int height)
+        {
+            int hash = html.GetHashCode() ^ (width << 16) ^ height;
+            return hash.ToString("X8");
+        }
+
+        /// <summary>清除布局缓存（修改 DSL 后需调用）。</summary>
+        public static void ClearCache()
+        {
+            _layoutCache.Clear();
+            _cacheKeys.Clear();
+        }
+
         // ──────────────────── 公开 API ────────────────────
 
         /// <summary>
@@ -54,6 +73,11 @@ namespace MCPForUnity.Editor.UguiBake
             if (string.IsNullOrWhiteSpace(html))
                 throw new ArgumentException("HTML 内容不能为空", nameof(html));
 
+            // 布局缓存：相同 HTML + 尺寸直接返回缓存结果
+            string cacheKey = GetCacheKey(html, defaultWidth, defaultHeight);
+            if (_layoutCache.TryGetValue(cacheKey, out var cached))
+                return cached;
+
             // 1. 解析 HTML DOM
             var domRoot = HtmlParser.Parse(html);
 
@@ -71,7 +95,19 @@ namespace MCPForUnity.Editor.UguiBake
             var layoutRoot = LayoutEngine.Layout(dslRoot, rootWidth, rootHeight);
 
             // 5. 构建 UIDataNode
-            return NodeBuilder.Build(layoutRoot, rootWidth, rootHeight);
+            var result = NodeBuilder.Build(layoutRoot, rootWidth, rootHeight);
+
+            // 写入缓存（LRU 策略：超容量时移除最早条目）
+            if (_cacheKeys.Count >= _cacheCapacity && _cacheKeys.Count > 0)
+            {
+                string oldest = _cacheKeys[0];
+                _cacheKeys.RemoveAt(0);
+                _layoutCache.Remove(oldest);
+            }
+            _layoutCache[cacheKey] = result;
+            _cacheKeys.Add(cacheKey);
+
+            return result;
         }
 
         /// <summary>
@@ -85,8 +121,7 @@ namespace MCPForUnity.Editor.UguiBake
             bool useTMP = true,
             string sourceHtmlPath = null)
         {
-            string json = Parse(html, width, height);
-            return UguiBakeBridge.Bake(json, prefabPath, width, height, useTMP, null, sourceHtmlPath);
+            return UguiBakeBridge.BakeFromHtml(html, prefabPath, width, height, useTMP, sourceHtmlPath);
         }
 
         // ──────────────────── 内部 ────────────────────
@@ -473,7 +508,7 @@ namespace MCPForUnity.Editor.UguiBake
             return -1;
         }
 
-        /// <summary>解析颜色值（#RRGGBB, #RRGGBBAA, rgba()）为 #RRGGBBAA 格式。</summary>
+        /// <summary>解析颜色值（#RGB, #RGBA, #RRGGBB, #RRGGBBAA, rgb(), rgba(), hsl(), hsla(), 命名颜色）为 #RRGGBBAA 格式。</summary>
         public static string ParseColor(string val)
         {
             if (string.IsNullOrWhiteSpace(val))
@@ -485,16 +520,30 @@ namespace MCPForUnity.Editor.UguiBake
                 val.Equals("none", StringComparison.OrdinalIgnoreCase))
                 return "#FFFFFF00";
 
-            // rgba(r,g,b,a) / rgb(r,g,b)
-            var mRgba = Regex.Match(val, @"^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)$", RegexOptions.IgnoreCase);
+            // rgba(r,g,b,a) / rgb(r,g,b) — 支持百分比
+            var mRgba = Regex.Match(val, @"^rgba?\(\s*(\d+|\d+\.?\d*%)\s*,\s*(\d+|\d+\.?\d*%)\s*,\s*(\d+|\d+\.?\d*%)\s*(?:,\s*([\d.]+))?\s*\)$", RegexOptions.IgnoreCase);
             if (mRgba.Success)
             {
-                int r = int.Parse(mRgba.Groups[1].Value);
-                int g = int.Parse(mRgba.Groups[2].Value);
-                int b = int.Parse(mRgba.Groups[3].Value);
+                int r = ResolveColorChannel(mRgba.Groups[1].Value);
+                int g = ResolveColorChannel(mRgba.Groups[2].Value);
+                int b = ResolveColorChannel(mRgba.Groups[3].Value);
                 int a = 255;
                 if (mRgba.Groups[4].Success)
                     a = Mathf.RoundToInt(float.Parse(mRgba.Groups[4].Value, CultureInfo.InvariantCulture) * 255);
+                return $"#{r:X2}{g:X2}{b:X2}" + (a < 255 ? $"{a:X2}" : "");
+            }
+
+            // hsl(h, s%, l%) / hsla(h, s%, l%, a)
+            var mHsl = Regex.Match(val, @"^hsla?\(\s*([\d.]+)(?:deg)?\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*(?:,\s*([\d.]+))?\s*\)$", RegexOptions.IgnoreCase);
+            if (mHsl.Success)
+            {
+                float h = float.Parse(mHsl.Groups[1].Value, CultureInfo.InvariantCulture) % 360f;
+                float s = float.Parse(mHsl.Groups[2].Value, CultureInfo.InvariantCulture) / 100f;
+                float l = float.Parse(mHsl.Groups[3].Value, CultureInfo.InvariantCulture) / 100f;
+                int a = 255;
+                if (mHsl.Groups[4].Success)
+                    a = Mathf.RoundToInt(float.Parse(mHsl.Groups[4].Value, CultureInfo.InvariantCulture) * 255);
+                var (r, g, b) = HslToRgb(h, s, l);
                 return $"#{r:X2}{g:X2}{b:X2}" + (a < 255 ? $"{a:X2}" : "");
             }
 
@@ -502,7 +551,7 @@ namespace MCPForUnity.Editor.UguiBake
             var mHex = Regex.Match(val, @"^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$", RegexOptions.IgnoreCase);
             if (mHex.Success)
             {
-                string hex = mHex.Groups[1].Value;
+                string hex = mHex.Groups[1].Value.ToUpperInvariant();
                 if (hex.Length == 3)
                     return "#" + hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
                 if (hex.Length == 4)
@@ -510,7 +559,7 @@ namespace MCPForUnity.Editor.UguiBake
                 return "#" + hex;
             }
 
-            // 常见颜色名
+            // 常见颜色名（CSS Level 1+2 子集）
             return val.ToLowerInvariant() switch
             {
                 "white" => "#FFFFFF",
@@ -519,9 +568,61 @@ namespace MCPForUnity.Editor.UguiBake
                 "green" => "#008000",
                 "blue" => "#0000FF",
                 "yellow" => "#FFFF00",
+                "cyan" or "aqua" => "#00FFFF",
+                "magenta" or "fuchsia" => "#FF00FF",
                 "gray" or "grey" => "#808080",
+                "silver" => "#C0C0C0",
+                "maroon" => "#800000",
+                "olive" => "#808000",
+                "navy" => "#000080",
+                "teal" => "#008080",
+                "purple" => "#800080",
+                "orange" => "#FFA500",
+                "pink" => "#FFC0CB",
+                "brown" => "#A52A2A",
+                "lime" => "#00FF00",
+                "gold" => "#FFD700",
+                "tomato" => "#FF6347",
+                "coral" => "#FF7F50",
+                "salmon" => "#FA8072",
+                "khaki" => "#F0E68C",
+                "lavender" => "#E6E6FA",
+                "ivory" => "#FFFFF0",
+                "beige" => "#F5F5DC",
+                "mintcream" => "#F5FFFA",
+                "azure" => "#F0FFFF",
                 _ => "#FFFFFF00",
             };
+        }
+
+        static int ResolveColorChannel(string val)
+        {
+            if (val.EndsWith("%"))
+            {
+                float pct = float.Parse(val.TrimEnd('%'), CultureInfo.InvariantCulture);
+                return Mathf.Clamp(Mathf.RoundToInt(pct * 255f / 100f), 0, 255);
+            }
+            return Mathf.Clamp(int.Parse(val), 0, 255);
+        }
+
+        static (int r, int g, int b) HslToRgb(float h, float s, float l)
+        {
+            float c = (1f - Mathf.Abs(2f * l - 1f)) * s;
+            float hPrime = h / 60f;
+            float x = c * (1f - Mathf.Abs(hPrime % 2f - 1f));
+            float r1, g1, b1;
+            if (hPrime < 1f) { r1 = c; g1 = x; b1 = 0; }
+            else if (hPrime < 2f) { r1 = x; g1 = c; b1 = 0; }
+            else if (hPrime < 3f) { r1 = 0; g1 = c; b1 = x; }
+            else if (hPrime < 4f) { r1 = 0; g1 = x; b1 = c; }
+            else if (hPrime < 5f) { r1 = x; g1 = 0; b1 = c; }
+            else { r1 = c; g1 = 0; b1 = x; }
+            float m = l - c / 2f;
+            return (
+                Mathf.Clamp(Mathf.RoundToInt((r1 + m) * 255), 0, 255),
+                Mathf.Clamp(Mathf.RoundToInt((g1 + m) * 255), 0, 255),
+                Mathf.Clamp(Mathf.RoundToInt((b1 + m) * 255), 0, 255)
+            );
         }
 
         /// <summary>解析 background-color（处理 rgba(0,0,0,0) → transparent）。</summary>
@@ -886,6 +987,7 @@ namespace MCPForUnity.Editor.UguiBake
         public Dictionary<string, string> Styles;
         public List<LayoutNode> Children = new List<LayoutNode>();
         public bool IsDslNode; // 是否有 data-u-type
+        public float FlexGrow;  // flex-grow 值（>0 表示参与剩余空间分配）
     }
 
     /// <summary>
@@ -926,8 +1028,16 @@ namespace MCPForUnity.Editor.UguiBake
             return node;
         }
 
-        static void LayoutChildren(LayoutNode parent)
+        const int MaxLayoutDepth = 64; // 递归深度保护，防止无限嵌套导致栈溢出
+
+        static void LayoutChildren(LayoutNode parent, int depth = 0)
         {
+            if (depth > MaxLayoutDepth)
+            {
+                UnityEngine.Debug.LogWarning($"[LayoutEngine] 超过最大递归深度 {MaxLayoutDepth}，跳过子节点布局（可能存在循环引用或过深嵌套）");
+                return;
+            }
+
             string position = parent.Styles.TryGetValue("position", out var pos) ? pos.ToLowerInvariant() : "static";
             string display = parent.Styles.TryGetValue("display", out var disp) ? disp.ToLowerInvariant() : "block";
             bool isFlex = display.Contains("flex");
@@ -966,13 +1076,25 @@ namespace MCPForUnity.Editor.UguiBake
             else
                 LayoutBlock(flowChildren, contentX, contentY, contentWidth);
 
+            // ★ 容器自动高度：当父级未显式声明 height 且当前高度为 0 时，根据子节点包围盒计算
+            if (!parent.Styles.ContainsKey("height") && parent.Height <= 0.001f && flowChildren.Count > 0)
+            {
+                float maxBottom = parent.Y + padTop;
+                foreach (var child in flowChildren)
+                {
+                    float bottom = child.Y + child.Height;
+                    if (bottom > maxBottom) maxBottom = bottom;
+                }
+                parent.Height = maxBottom - parent.Y + padBottom;
+            }
+
             // 布局绝对定位子节点
             foreach (var child in absChildren)
                 LayoutAbsolute(child, parent, contentX, contentY, contentWidth, contentHeight);
 
             // 递归
             foreach (var child in parent.Children)
-                LayoutChildren(child);
+                LayoutChildren(child, depth + 1);
         }
 
         static void ParsePaddingShorthand(Dictionary<string, string> styles,
@@ -998,6 +1120,10 @@ namespace MCPForUnity.Editor.UguiBake
             {
                 // 解析子节点尺寸
                 ResolveSize(child, contentWidth, 0);
+
+                // ★ 预测量：对无显式高度的子节点递归计算自动高度
+                if (child.Height <= 0.001f && child.FlexGrow <= 0)
+                    MeasureAutoHeight(child, contentWidth);
 
                 // margin
                 float marginTop = CssParser.ParseLength(child.Styles, "margin-top", 0);
@@ -1030,6 +1156,8 @@ namespace MCPForUnity.Editor.UguiBake
                 else
                     gap = CssParser.ParseLength(parent.Styles, "column-gap", 0);
             }
+            // gap 值校验：负数归零，防止布局错乱
+            if (gap < 0) gap = 0;
 
             string alignItems = "stretch";
             if (parent.Styles.TryGetValue("align-items", out var ai))
@@ -1045,28 +1173,132 @@ namespace MCPForUnity.Editor.UguiBake
                 LayoutFlexRow(children, x, y, contentWidth, contentHeight, gap, alignItems, justifyContent);
         }
 
+        /// <summary>
+        /// 递归测量节点的自动高度（当节点无显式 height 且无 flex-grow 时）。
+        /// 解决 flex column / block 布局中子节点高度未确定就参与定位的问题。
+        /// </summary>
+        static float MeasureAutoHeight(LayoutNode node, float availableWidth)
+        {
+            // 已有显式高度或 flex-grow，无需测量
+            if (node.Height > 0.001f) return node.Height;
+
+            // 解析 display 和 flex-direction
+            string display = node.Styles.TryGetValue("display", out var d) ? d.ToLowerInvariant() : "block";
+            bool isFlex = display.Contains("flex");
+            string flexDir = node.Styles.TryGetValue("flex-direction", out var fd) ? fd.ToLowerInvariant().Trim() : "row";
+            bool isColumn = isFlex && flexDir.Contains("column");
+
+            // 解析 padding
+            float padTop = CssParser.ParseLength(node.Styles, "padding-top", 0);
+            float padBottom = CssParser.ParseLength(node.Styles, "padding-bottom", 0);
+            float padLeft = CssParser.ParseLength(node.Styles, "padding-left", 0);
+            float padRight = CssParser.ParseLength(node.Styles, "padding-right", 0);
+            ParsePaddingShorthand(node.Styles, ref padTop, ref padRight, ref padBottom, ref padLeft);
+
+            float contentWidth = availableWidth - padLeft - padRight;
+            if (contentWidth < 0) contentWidth = 0;
+
+            // 分离流式子节点
+            var flowChildren = new List<LayoutNode>();
+            foreach (var child in node.Children)
+            {
+                string childPos = child.Styles.TryGetValue("position", out var cp) ? cp.ToLowerInvariant() : "static";
+                if (childPos != "absolute" && childPos != "fixed")
+                    flowChildren.Add(child);
+            }
+
+            if (flowChildren.Count == 0) return 0;
+
+            // 解析 gap
+            float gap = CssParser.ParseLength(node.Styles, "gap", 0);
+            if (gap < 0) gap = 0;
+
+            // 测量每个子节点
+            float totalHeight = 0;
+            float maxHeight = 0;
+            foreach (var child in flowChildren)
+            {
+                ResolveSize(child, contentWidth, 0);
+                float childHeight = MeasureAutoHeight(child, contentWidth);
+                totalHeight += childHeight;
+                if (childHeight > maxHeight) maxHeight = childHeight;
+            }
+
+            // 根据布局类型计算自动高度
+            float result;
+            if (isColumn)
+                result = totalHeight + gap * (flowChildren.Count - 1) + padTop + padBottom;
+            else if (isFlex) // flex row
+                result = maxHeight + padTop + padBottom;
+            else // block
+                result = totalHeight + padTop + padBottom;
+
+            node.Height = result;
+            return result;
+        }
+
         static void LayoutFlexColumn(List<LayoutNode> children, float x, float y,
             float contentWidth, float contentHeight, float gap,
             string alignItems, string justifyContent)
         {
             // 第一遍：测量所有子节点的高度
-            float totalHeight = 0;
             var sizes = new float[children.Count, 2]; // [i, 0]=width, [i, 1]=height
+            var flexGrowValues = new float[children.Count];
 
             for (int i = 0; i < children.Count; i++)
             {
                 var child = children[i];
                 ResolveSize(child, contentWidth, contentHeight);
-
-                // flex: 1 的子节点先记录，稍后分配剩余空间
                 sizes[i, 0] = child.Width;
                 sizes[i, 1] = child.Height;
-                totalHeight += child.Height;
+                flexGrowValues[i] = child.FlexGrow;
             }
 
-            totalHeight += gap * (children.Count - 1);
+            // ★ 预测量：对无显式高度且无 flex-grow 的子节点递归计算自动高度
+            for (int i = 0; i < children.Count; i++)
+            {
+                if (sizes[i, 1] <= 0.001f && flexGrowValues[i] <= 0)
+                {
+                    MeasureAutoHeight(children[i], contentWidth);
+                    sizes[i, 1] = children[i].Height;
+                }
+            }
+
+            // 第二遍：flex-grow 空间分配
+            float totalFlexGrow = 0;
+            float totalFixedSize = 0; // 非弹性子节点总高度
+            for (int i = 0; i < children.Count; i++)
+            {
+                if (flexGrowValues[i] > 0)
+                    totalFlexGrow += flexGrowValues[i];
+                else
+                    totalFixedSize += sizes[i, 1];
+            }
+
+            float totalGap = gap * (children.Count - 1);
+            float availableForFlex = contentHeight - totalFixedSize - totalGap;
+
+            if (totalFlexGrow > 0 && availableForFlex > 0)
+            {
+                for (int i = 0; i < children.Count; i++)
+                {
+                    if (flexGrowValues[i] > 0)
+                    {
+                        float allocated = (availableForFlex * flexGrowValues[i] / totalFlexGrow);
+                        sizes[i, 1] = allocated;
+                        children[i].Height = allocated;
+                    }
+                }
+            }
+
+            // 计算总高度
+            float totalHeight = 0;
+            for (int i = 0; i < children.Count; i++)
+                totalHeight += sizes[i, 1];
+            totalHeight += totalGap;
 
             // 计算起始 Y（justify-content）
+            // 注意：flex-grow 子节点已吸收剩余空间，freeSpace 通常为 0
             float startY = y;
             float freeSpace = contentHeight - totalHeight;
 
@@ -1116,7 +1348,9 @@ namespace MCPForUnity.Editor.UguiBake
                         break;
                     case "stretch":
                         child.X = x;
-                        child.Width = contentWidth;
+                        // 仅当子节点无显式宽度且无测量宽度时才拉伸
+                        if (child.Width <= 0)
+                            child.Width = contentWidth;
                         break;
                     default: // flex-start
                         child.X = x;
@@ -1134,8 +1368,11 @@ namespace MCPForUnity.Editor.UguiBake
             float contentWidth, float contentHeight, float gap,
             string alignItems, string justifyContent)
         {
-            float totalWidth = 0;
+            // ★ 自动高度：当 contentHeight 为 0 时，先用子节点最大高度作为基准
+            bool autoHeight = contentHeight <= 0.001f;
+
             var sizes = new float[children.Count, 2];
+            var flexGrowValues = new float[children.Count];
 
             for (int i = 0; i < children.Count; i++)
             {
@@ -1143,10 +1380,52 @@ namespace MCPForUnity.Editor.UguiBake
                 ResolveSize(child, contentWidth, contentHeight);
                 sizes[i, 0] = child.Width;
                 sizes[i, 1] = child.Height;
-                totalWidth += child.Width;
+                flexGrowValues[i] = child.FlexGrow;
             }
 
-            totalWidth += gap * (children.Count - 1);
+            // 自动高度模式下，使用子节点最大高度作为 contentHeight
+            if (autoHeight)
+            {
+                float maxH = 0;
+                for (int i = 0; i < children.Count; i++)
+                {
+                    if (sizes[i, 1] > maxH) maxH = sizes[i, 1];
+                }
+                contentHeight = maxH;
+            }
+
+            // 第二遍：flex-grow 空间分配（水平方向）
+            float totalFlexGrow = 0;
+            float totalFixedWidth = 0;
+            for (int i = 0; i < children.Count; i++)
+            {
+                if (flexGrowValues[i] > 0)
+                    totalFlexGrow += flexGrowValues[i];
+                else
+                    totalFixedWidth += sizes[i, 0];
+            }
+
+            float totalGap = gap * (children.Count - 1);
+            float availableForFlex = contentWidth - totalFixedWidth - totalGap;
+
+            if (totalFlexGrow > 0 && availableForFlex > 0)
+            {
+                for (int i = 0; i < children.Count; i++)
+                {
+                    if (flexGrowValues[i] > 0)
+                    {
+                        float allocated = (availableForFlex * flexGrowValues[i] / totalFlexGrow);
+                        sizes[i, 0] = allocated;
+                        children[i].Width = allocated;
+                    }
+                }
+            }
+
+            // 计算总宽度
+            float totalWidth = 0;
+            for (int i = 0; i < children.Count; i++)
+                totalWidth += sizes[i, 0];
+            totalWidth += totalGap;
 
             float startX = x;
             float freeSpace = contentWidth - totalWidth;
@@ -1193,7 +1472,9 @@ namespace MCPForUnity.Editor.UguiBake
                         break;
                     case "stretch":
                         child.Y = y;
-                        child.Height = contentHeight;
+                        // 仅当子节点无显式高度时才拉伸至父容器高度
+                        if (child.Height <= 0)
+                            child.Height = contentHeight;
                         break;
                     default:
                         child.Y = y;
@@ -1269,9 +1550,24 @@ namespace MCPForUnity.Editor.UguiBake
             }
         }
 
-        /// <summary>解析子节点 width/height（支持 px、百分比、auto）。</summary>
+        /// <summary>解析子节点 width/height（支持 px、百分比、auto、flex-grow）。</summary>
         static void ResolveSize(LayoutNode child, float parentWidth, float parentHeight)
         {
+            // 解析 flex-grow（支持 flex-grow 属性和 flex 简写）
+            child.FlexGrow = 0;
+            if (child.Styles.TryGetValue("flex-grow", out var fgVal))
+            {
+                float.TryParse(fgVal, NumberStyles.Float, CultureInfo.InvariantCulture, out child.FlexGrow);
+            }
+            else if (child.Styles.TryGetValue("flex", out var flexShorthand) && flexShorthand != "0" && flexShorthand != "none")
+            {
+                // CSS flex 简写：flex:1 → flex-grow:1; flex:2 → flex-grow:2
+                var flexParts = flexShorthand.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (flexParts.Length > 0)
+                    float.TryParse(flexParts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out child.FlexGrow);
+                if (child.FlexGrow <= 0) child.FlexGrow = 1; // flex:none 已排除，其他非零值默认为 1
+            }
+
             // Width
             if (child.Styles.TryGetValue("width", out var wVal))
             {
@@ -1281,11 +1577,10 @@ namespace MCPForUnity.Editor.UguiBake
                 else
                     child.Width = CssParser.ParseLengthValue(wVal, 0);
             }
-            // flex-basis / flex
-            else if (child.Styles.TryGetValue("flex", out var flexVal) && flexVal != "0" && flexVal != "none")
+            // flex-grow 子节点初始宽度为 0（由布局引擎分配剩余空间）
+            else if (child.FlexGrow > 0)
             {
-                // 简化：flex: 1 → 占满剩余空间（在外部处理）
-                child.Width = 0; // 标记为 flex
+                child.Width = 0;
             }
 
             // Height
@@ -1297,7 +1592,7 @@ namespace MCPForUnity.Editor.UguiBake
                 else
                     child.Height = CssParser.ParseLengthValue(hVal, 0);
             }
-            else if (child.Styles.TryGetValue("flex", out var flexVal) && flexVal != "0" && flexVal != "none")
+            else if (child.FlexGrow > 0)
             {
                 child.Height = 0;
             }
@@ -1322,6 +1617,41 @@ namespace MCPForUnity.Editor.UguiBake
             {
                 float maxH = CssParser.ParseLengthValue(maxHVal, float.MaxValue);
                 if (child.Height > maxH) child.Height = maxH;
+            }
+
+            // 文本/按钮节点未显式声明高度时，按字号估算合理高度
+            if (child.Height <= 0)
+            {
+                string uType = child.DomNode.GetAttribute("data-u-type", "").ToLowerInvariant();
+                if (uType == "text" || uType == "button")
+                {
+                    float fs = CssParser.ParseLength(child.Styles, "font-size", 14);
+                    child.Height = Mathf.Ceil(fs * 1.5f);
+                }
+            }
+
+            // 文本/按钮节点未显式声明宽度时，按字号和文本长度估算合理宽度
+            if (child.Width <= 0 && child.FlexGrow <= 0)
+            {
+                string uType = child.DomNode.GetAttribute("data-u-type", "").ToLowerInvariant();
+                if (uType == "text" || uType == "button")
+                {
+                    float fs = CssParser.ParseLength(child.Styles, "font-size", 14);
+                    string text = child.DomNode.GetInnerText();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        // 估算：每个字符约 0.6 × 字号宽度，加上左右内边距
+                        // CJK 字符约 1.0 × 字号，拉丁字符约 0.55 × 字号，取折中 0.7
+                        int cjkCount = 0, latinCount = 0;
+                        foreach (char c in text)
+                        {
+                            if (c >= 0x4E00 && c <= 0x9FFF) cjkCount++;
+                            else if (c > 0x20) latinCount++;
+                        }
+                        float estWidth = cjkCount * fs + latinCount * fs * 0.55f + fs * 0.4f;
+                        child.Width = Mathf.Ceil(estWidth);
+                    }
+                }
             }
         }
     }
@@ -1415,6 +1745,7 @@ namespace MCPForUnity.Editor.UguiBake
             float uValue = ParseFloatSafe(dom.GetAttribute("data-u-value", ""), 0.5f);
             bool uChecked = dom.GetAttribute("data-u-checked", "").Equals("true", StringComparison.OrdinalIgnoreCase);
             string uLayout = dom.GetAttribute("data-u-layout", "").Trim().ToLowerInvariant();
+            string uAutoSize = dom.GetAttribute("data-u-auto-size", "").Trim().ToLowerInvariant();
 
             // data-u-export 检查
             var exportRaw = dom.GetAttribute("data-u-export", "").Trim().ToLowerInvariant();
@@ -1479,6 +1810,7 @@ namespace MCPForUnity.Editor.UguiBake
                 textAlign = textAlign,
                 text = textContent,
                 layout = uLayout,
+                autoSize = uAutoSize,
                 children = children
             };
 

@@ -1,52 +1,41 @@
 # AI 工作流与 Prompt 模板 — HtmlToUGUI × Unity MCP
 
 > 本文件供 AI 助手（Claude / Cursor / TRAE 等）在通过 Unity MCP 制作 UGUI 界面时参考。
-> 调用 `bake_ugui(action="get_dsl")` 可获取完整 DSL 规范与本文件。
+> 调用 `bake_ugui(action="get_spec")` 可获取本规范全文。
+
+## 核心理念
+
+**工具的唯一输入格式是 HTML。** AI 助手负责将用户的任意输入（自然语言、截图、已有 HTML 等）转换为标准 UI-DSL HTML，然后调用 `bake_from_html` 烘焙为预制体。烘焙结果中会返回 `htmlContent` 字段，供调用方确认生成的 HTML。
+
+```
+用户任意输入（自然语言 / 截图 / HTML / …）
+    ↓  AI 转换
+标准 UI-DSL HTML
+    ↓  bake_ugui(action="bake_from_html")
+UGUI 预制体 + htmlContent（回传 HTML 供确认）
+```
 
 ## 一、系统能力概览
 
 | 能力 | MCP Action | 说明 |
 |------|-----------|------|
-| 获取 DSL 规范 | `get_dsl` | 返回 UI-DSL 全控件版规范 + 可用画风列表 |
-| **缩进 DSL→JSON 解析** | `parse_dsl` | 轻量格式，比 HTML 少 ~65% token |
-| **DSL→预制体一步烘焙** | `bake_from_dsl` | **推荐入口**，解析+烘焙一步到位 |
-| HTML→JSON 解析 | `parse_html` | 纯 C# 解析器，无需浏览器 |
-| JSON→预制体烘焙 | `bake` | 将 UIDataNode JSON 烘焙为 .prefab |
-| HTML→预制体一步烘焙 | `bake_from_html` | 解析+烘焙一步到位 |
-| 批量烘焙 | `bake_batch` | 一次烘焙多个界面 |
-| 增量更新子树 | `bake_partial` | 只更新预制体的某个子节点 |
+| 获取 HTML 规范 | `get_spec` | 返回本文件全文 + 可用画风列表 |
+| **HTML→预制体一步烘焙** | `bake_from_html` | **唯一烘焙入口**，解析+烘焙一步到位，返回 htmlContent |
 | 列出已烘焙预制体 | `list` | 查看 Baked/Prefabs 目录 |
 | 删除预制体 | `delete` | 删除 .prefab 及其 JSON 快照 |
 | 生成 View 脚本 | `generate_view_script` | 自动生成 C# 绑定脚本 |
 
-## 二、标准工作流（推荐）
-
-### DSL 工作流（推荐，token 最省）
+## 二、标准工作流
 
 ```
-用户描述需求
+用户描述需求（自然语言 / 截图 / 已有 HTML）
     ↓
-① AI 直接编写缩进 DSL（无需获取规范，语法见下文）
+① AI 调用 get_spec 获取规范（首次或需要参考时）
     ↓
-② AI 调用 bake_from_dsl（DSL→JSON→Prefab 一步到位）
+② AI 按规范生成 UI-DSL HTML
     ↓
-③ AI 调用 manage_camera 截图验证
-    ↓
-④ 需要调整 → 修改 DSL → 重新 bake_from_dsl
-    ↓
-⑤ 满意后 → generate_view_script 生成绑定脚本
-```
-
-### HTML 工作流（兼容，功能更全）
-
-```
-用户描述需求
-    ↓
-① AI 调用 get_dsl 获取规范
-    ↓
-② AI 按 DSL 规范生成 HTML
-    ↓
-③ AI 调用 bake_from_html（HTML→JSON→Prefab 一步到位）
+③ AI 调用 bake_from_html（HTML→Prefab 一步到位）
+   返回结果含 htmlContent 字段，供 AI 确认生成的 HTML
     ↓
 ④ AI 调用 manage_camera 截图验证
     ↓
@@ -55,51 +44,16 @@
 ⑥ 满意后 → generate_view_script 生成绑定脚本
 ```
 
-### DSL 工作流逐步说明
+### 逐步说明
 
-#### Step 1: 编写 DSL
-直接按缩进 DSL 语法编写 UI 描述（见下方语法参考），无需获取规范。
-
-#### Step 2: 一步烘焙
+#### Step 1: 获取规范（可选）
 ```
-bake_ugui(
-    action="bake_from_dsl",
-    dsl_content="div MyPage 942x2048 bg:#1a1f2e flex:col center\n  ...",
-    prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/MyPage.prefab",
-    reference_width=942,
-    reference_height=2048,
-    use_tmp=True,
-    font_path="Assets/Fonts/NotoSansSC.asset"
-)
+bake_ugui(action="get_spec")
 ```
-
-#### Step 3: 截图验证
-```
-manage_camera(action="screenshot", capture_source="scene_view", view_target="MyPage", include_image=True)
-```
-
-#### Step 4: 迭代调整
-修改 DSL 后重新调用 `bake_from_dsl`，系统会自动备份旧预制体。
-
-#### Step 5: 生成绑定脚本
-```
-bake_ugui(
-    action="generate_view_script",
-    prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/MyPage.prefab",
-    namespace="Game.UI"
-)
-```
-
-### HTML 工作流逐步说明
-
-#### Step 1: 获取规范
-```
-bake_ugui(action="get_dsl")
-```
-AI 首次操作时应获取 DSL 规范，确保生成的 HTML 符合要求。
+AI 首次操作或需要参考语法时应获取规范，确保生成的 HTML 符合要求。
 
 #### Step 2: 生成 HTML
-按 DSL 规范生成 UI-DSL HTML。关键规则：
+按规范生成 UI-DSL HTML。关键规则：
 - 唯一根节点：`data-u-type="div" data-u-name="rootName"`
 - 根节点 `style` 必须含 `width: {W}px; height: {H}px;`
 - 每个需要进 Unity 的节点必须有 `data-u-type` + `data-u-name`
@@ -119,6 +73,7 @@ bake_ugui(
     use_tmp=True
 )
 ```
+返回结果包含 `htmlContent` 字段（即传入的 HTML），供 AI 确认。
 
 #### Step 4: 截图验证
 ```
@@ -140,7 +95,7 @@ bake_ugui(
 
 ## 三、烘焙参数详解
 
-所有烘焙类 action（`bake`、`bake_batch`、`bake_partial`、`bake_from_html`、`bake_from_dsl`）均支持以下参数：
+`bake_from_html` 支持以下参数：
 
 ### use_tmp — 文本组件类型
 
@@ -150,7 +105,7 @@ bake_ugui(
 | `false` | `UnityEngine.UI.Text` / `InputField` / `Dropdown` | 无 TMP 包或需要轻量兼容时使用 |
 
 ```
-bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...", use_tmp=False)
+bake_ugui(action="bake_from_html", html_content="...", prefab_path="...", use_tmp=False)
 ```
 
 ### font_path — 默认字体
@@ -166,7 +121,7 @@ bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...", use_tmp=
 - 若配置也为空，TMP 使用全局默认字体，旧版 Text 使用系统默认字体
 
 ```
-bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...",
+bake_ugui(action="bake_from_html", html_content="...", prefab_path="...",
           use_tmp=True, font_path="Assets/Fonts/NotoSansSC.asset")
 ```
 
@@ -179,9 +134,13 @@ bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...",
 - 省略时从零创建 Canvas（ScreenSpaceOverlay + CanvasScaler）
 
 ```
-bake_ugui(action="bake_from_dsl", dsl_content="...", prefab_path="...",
+bake_ugui(action="bake_from_html", html_content="...", prefab_path="...",
           template_prefab="Assets/Prefabs/UI/UITemplate.prefab")
 ```
+
+### source_html — 源 HTML 路径
+
+当 HTML 中引用了相对图片路径时，提供源 HTML 的 Assets 路径用于解析图片。
 
 ### 参数优先级
 
@@ -198,129 +157,86 @@ MCP 调用参数 > UguiBakeConfig 配置 > 代码内置默认值
 | `defaultLegacyFont` | 旧版 Text 默认字体 |
 | `defaultTemplatePrefab` | 默认页面模板预制体 |
 
-## 四、缩进 DSL 语法参考
+## 四、HTML 语法参考
 
-> 缩进 DSL 是一种轻量 UI 描述格式，用 2 空格缩进表达层级，比 HTML 减少 ~65% token。
-> 底层复用同一套布局引擎，烘焙结果与 HTML 完全一致。
+> UI-DSL HTML 是标准 HTML 的子集，通过 `data-u-*` 属性标注 Unity 控件类型，用 inline `style` 描述布局与样式。
+> 纯 C# 解析器实现，无需浏览器。
 
-### 基本语法
+### 节点类型（data-u-type）
 
-每行一个节点，格式：`类型 名称 属性... "文本内容"`
-
-```
-# 注释行（# 开头）
-div MyPage 942x2048 bg:#1a1f2e flex:col center
-  img bg stretch bg:#141824
-  div @topBar stretch-h bg:#0d1117 h:80 flex:center
-    text txt.Title "系统设置" color:#e0e6ed fs:36
-  btn btn.Save "保存设置" bg:#3182ce color:#fff fs:22 h:56 r:12
-```
-
-### 节点类型
-
-| DSL 类型 | 对应 UGUI 控件 | 说明 |
-|---------|---------------|------|
+| data-u-type | 对应 UGUI 控件 | 说明 |
+|-------------|---------------|------|
 | `div` | RectTransform 容器 | 通用容器节点 |
-| `img` / `image` | Image | 图片节点 |
+| `image` / `img` | Image | 图片节点 |
 | `text` | Text / TMP_Text | 文本节点 |
-| `btn` / `button` | Button | 按钮节点 |
+| `button` / `btn` | Button | 按钮节点 |
 | `input` | InputField / TMP_InputField | 输入框，文本作为 placeholder |
-| `toggle` | Toggle | 开关，加 `checked` 标志位 |
-| `slider` | Slider | 滑动条 |
-| `select` / `dropdown` | Dropdown / TMP_Dropdown | 下拉菜单，文本用逗号分隔选项 |
+| `toggle` | Toggle | 开关，加 `data-u-checked="true"` |
+| `slider` | Slider | 滑动条，加 `data-u-value="0.8"` |
+| `dropdown` / `select` | Dropdown / TMP_Dropdown | 下拉菜单，用 `<option>` 分隔选项 |
 | `scroll` | ScrollRect | 滚动列表 |
 
-### 布局关键字
+### 布局关键字（data-u-layout）
 
-| 关键字 | 对应 data-u-layout | 说明 |
-|--------|-------------------|------|
-| `stretch` | stretch | 全屏拉伸（left:0 top:0 width:100% height:100%） |
-| `center` | center | 居中布局 |
-| `stretch-h` | stretch-h | 水平通栏拉伸 |
-| `stretch-v` | stretch-v | 垂直通栏拉伸 |
-| `absolute` | absolute | 绝对定位（需配合 left/top） |
+| 值 | 说明 |
+|----|------|
+| `stretch` | 全屏拉伸（left:0 top:0 width:100% height:100%） |
+| `center` | 居中布局 |
+| `stretch-h` | 水平通栏拉伸 |
+| `stretch-v` | 垂直通栏拉伸 |
+| `absolute` | 绝对定位（需配合 left/top） |
 
-### 属性速查
+### CSS 属性速查
 
-| 属性 | 对应 CSS | 示例 | 说明 |
-|------|---------|------|------|
-| `bg` | background-color | `bg:#1a1f2e` | 背景色 |
-| `color` | color | `color:#e0e6ed` | 文字颜色 |
-| `w` | width | `w:600` / `w:100%` | 宽度（像素或百分比） |
-| `h` | height | `h:80` / `h:100%` | 高度 |
-| `maxw` / `minw` | max-width / min-width | `maxw:600` | 最大/最小宽度 |
-| `maxh` / `minh` | max-height / min-height | `maxh:400` | 最大/最小高度 |
-| `fs` | font-size | `fs:36` | 字号（px） |
-| `bold` | font-weight: bold | `bold` | 粗体（标志位） |
-| `ta` | text-align | `ta:center` | 文字对齐 |
-| `flex` | display:flex + 方向 | `flex:col` / `flex:row` | flex 布局 |
-| `flex` | + 对齐 | `flex:col:center` | flex + align-items |
-| `flex` | + 对齐 + 分布 | `flex:col:center:between` | flex + align + justify |
-| `align` | align-items | `align:center` | 交叉轴对齐 |
-| `justify` | justify-content | `justify:between` | 主轴分布 |
-| `gap` | gap | `gap:24` | flex 间距（px） |
-| `r` | border-radius | `r:12` | 圆角（px） |
-| `border` | border-bottom | `border:2:#2d4a7a` | 底边框（宽度:颜色） |
-| `pad` | padding | `pad:20` / `pad:20,10` | 内边距（逗号分隔） |
-| `pos` | position | `pos:absolute` | 定位方式 |
-| `left` / `top` | left / top | `left:0` / `top:80` | 定位偏移 |
-| `right` / `bottom` | right / bottom | `right:20` | 定位偏移 |
-| `z` | z-index | `z:1` | 层级 |
-| `img` | background-image: url() | `img: textures/ui/bg` | 背景图路径 |
-| `grad` | linear-gradient | `grad:165:#c1,#c2` | 渐变（角度:颜色） |
-| `outline` | data-u-outline-* | `outline:2:#000000` | 文字描边（宽度:颜色） |
-| `value` | data-u-value | `value:0.8` | slider 默认值 |
-| `checked` | data-u-checked | `checked` | toggle 默认勾选（标志位） |
-| `dir` | data-u-dir | `dir:ltr` | 文字方向 |
-| `export` | data-u-export | `export:true` | 导出标记 |
+| 属性 | 示例 | 说明 |
+|------|------|------|
+| `width` / `height` | `width:100%` / `height:80px` | 宽高（像素或百分比） |
+| `background-color` / `background` | `background-color:#1a1f2e` | 背景色 |
+| `color` | `color:#e0e6ed` | 文字颜色 |
+| `font-size` | `font-size:36px` | 字号 |
+| `font-weight` | `font-weight:bold` / `font-weight:700` | 粗体 |
+| `text-align` | `text-align:center` | 文字对齐 |
+| `display` | `display:flex` | flex 布局 |
+| `flex-direction` | `flex-direction:column` / `row` | flex 方向 |
+| `align-items` | `align-items:center` | 交叉轴对齐 |
+| `justify-content` | `justify-content:space-between` | 主轴分布 |
+| `gap` | `gap:24px` | flex 间距 |
+| `border-radius` | `border-radius:12px` | 圆角 |
+| `border-bottom` | `border-bottom:2px solid #2d4a7a` | 底边框 |
+| `padding` | `padding:20px` / `padding:20px 10px` | 内边距 |
+| `position` | `position:absolute` | 定位方式 |
+| `left` / `top` / `right` / `bottom` | `left:0` / `top:80px` | 定位偏移 |
+| `z-index` | `z-index:1` | 层级 |
+| `max-width` / `min-width` | `max-width:600px` | 最大/最小宽度 |
+| `max-height` / `min-height` | `max-height:400px` | 最大/最小高度 |
+| `box-sizing` | `box-sizing:border-box` | 盒模型 |
+| `overflow` | `overflow:hidden` | 溢出处理 |
 
-### flex 属性组合写法
+### 特殊属性（data-u-*）
 
-`flex` 支持用冒号组合多个值，顺序：`方向:对齐:分布`
+| 属性 | 说明 |
+|------|------|
+| `data-u-type` | 控件类型（必填） |
+| `data-u-name` | 节点名称（必填） |
+| `data-u-layout` | 布局关键字 |
+| `data-u-value` | slider 默认值 |
+| `data-u-checked` | toggle 默认勾选 |
+| `data-u-dir` | 文字方向（ltr/rtl） |
+| `data-u-outline-width` / `data-u-outline-color` | 文字描边 |
+| `data-u-export` | 导出标记 |
 
+### flex 布局写法
+
+```css
+/* 纵向排列，居中对齐 */
+display:flex; flex-direction:column; align-items:center;
+
+/* 纵向排列，居中，两端分布 */
+display:flex; flex-direction:column; align-items:center; justify-content:space-between;
+
+/* 横向排列，起点对齐，均匀分布 */
+display:flex; flex-direction:row; align-items:flex-start; justify-content:space-evenly;
 ```
-flex:col                    → display:flex; flex-direction:column
-flex:row                    → display:flex; flex-direction:row
-flex:col:center             → + align-items:center
-flex:col:center:between     → + justify-content:space-between
-flex:row:start:evenly       → align-items:flex-start; justify-content:space-evenly
-```
-
-对齐值简写：`start` → `flex-start`，`end` → `flex-end`
-分布值简写：`between` → `space-between`，`evenly` → `space-evenly`
-
-### 文本内容
-
-- 用双引号包裹文本：`text txt.Title "系统设置"`
-- dropdown 用逗号分隔选项：`select dropdown.Quality "低画质,中画质,高画质"`
-- input 的文本作为 placeholder：`input input.Name "请输入用户名"`
-- 不含冒号且非关键字的裸文本也会被当作文本内容
-
-### 根节点尺寸
-
-根节点行可包含 `WxH` 格式的尺寸声明（如 `942x2048`），等效于 HTML 的 `width:942px; height:2048px`。
-
-### DSL vs HTML 对照
-
-| 维度 | 缩进 DSL | HTML |
-|------|---------|------|
-| Token 用量 | ~35%（基准） | ~100%（基准） |
-| 层级表达 | 2 空格缩进 | 标签嵌套 `</div>` |
-| 属性 | `bg:#1a1f2e` | `style="background-color:#1a1f2e"` |
-| 文本 | `"系统设置"` | `>系统设置</div>` |
-| 注释 | `# 注释` | `<!-- 注释 -->` |
-| 布局关键字 | `stretch` | `data-u-layout="stretch"` |
-| 适用场景 | AI 快速生成、迭代 | 复杂样式、精细控制 |
-
-### 警告与错误处理
-
-- `parse_dsl` / `bake_from_dsl` 的返回中可能包含 `warnings` / `dslWarnings` 数组。**AI 必须检查该字段**，常见警告：
-  - `未知节点类型 'xxx'，已按 div 处理` → 类型拼写错误，修正后重新烘焙
-  - `未知属性 'xxx'（值已忽略）` → 属性名拼写错误
-  - `文本未加引号，已将 N 个片段拼接` → 文本应加双引号
-  - `缩进为 N 空格，不是单位 M 的整数倍` → 缩进不一致
-- **解析错误**会带行号抛出（如 `第 5 行：缩进跳级`），AI 应根据行号定位并修复后重试
-- 硬错误（直接失败）：多根节点、缩进跳级、根节点带缩进、DSL 为空
 
 ## 五、Prompt 模板
 
@@ -335,7 +251,7 @@ flex:row:start:evenly       → align-items:flex-start; justify-content:space-ev
 - 基准分辨率：[宽] × [高]
 
 请按以下步骤执行：
-1. 调用 bake_ugui(action="get_dsl") 获取 DSL 规范
+1. 调用 bake_ugui(action="get_spec") 获取 HTML 规范
 2. 按规范生成 HTML 代码
 3. 调用 bake_ugui(action="bake_from_html") 烘焙为预制体
 4. 截图验证效果
@@ -358,9 +274,6 @@ flex:row:start:evenly       → align-items:flex-start; justify-content:space-ev
 2. 生成修改后的完整 HTML
 3. 调用 bake_ugui(action="bake_from_html") 重新烘焙（会自动备份旧版本）
 4. 截图验证
-
-如果只需要更新某个子区域，可以使用增量更新：
-bake_ugui(action="bake_partial", prefab_path="...", node_path="[目标节点路径]", json_content="[子树JSON]")
 ```
 
 ### 模板 C：批量制作多个界面
@@ -375,27 +288,11 @@ bake_ugui(action="bake_partial", prefab_path="...", node_path="[目标节点路�
 统一分辨率：[宽] × [高]
 
 请按以下步骤执行：
-1. 获取 DSL 规范
+1. 获取 HTML 规范
 2. 为每个界面生成 HTML
 3. 逐个调用 bake_from_html 烘焙
 4. 全部完成后截图验证
 5. 为每个界面生成 View 脚本
-```
-
-### 模板 D：增量更新子区域
-
-```
-请帮我更新 [界面名称] 预制体中的 [子区域名称] 区域。
-
-预制体路径：Assets/3rd/HtmlToUGUI/Baked/Prefabs/[PageName].prefab
-目标节点路径：[如 "@menuContentLayer" 或 "content/@topHud"]
-更新内容：[具体修改]
-
-步骤：
-1. 生成该子区域的 HTML 片段
-2. 调用 parse_html 解析为 JSON
-3. 调用 bake_partial 更新预制体
-4. 截图验证
 ```
 
 ## 六、命名规范
@@ -444,7 +341,7 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 - 不支持 `flex-grow/shrink` 精确分配（简化为等分或显式尺寸）
 - 不支持 `::before/::after` 伪元素
 - 不支持外部 CSS 文件（仅解析 inline style）
-- 文字尺寸不参与流式布局计算（与浏览器一致，DSL 要求显式尺寸）
+- 文字尺寸不参与流式布局计算（与浏览器一致，要求显式尺寸）
 
 ### 最佳实践
 1. **根节点必须声明显式尺寸**：`width: 942px; height: 2048px;`
@@ -461,14 +358,12 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 - 建议将 HTML 源文件也提交到版本控制
 
 ### AI 与人工协作
-- AI 负责：生成 DSL/HTML、调用烘焙、截图验证、生成脚本骨架
+- AI 负责：生成 HTML、调用烘焙、截图验证、生成脚本骨架
 - 人工负责：微调视觉效果、编写业务逻辑、最终审美确认
-- 命名约定：AI 生成的 DSL/HTML 放 `HTML/` 目录，预制体放 `Baked/Prefabs/`
+- 命名约定：AI 生成的 HTML 放 `HTML/` 目录，预制体放 `Baked/Prefabs/`
 
 ### 性能注意
 - 单次烘焙建议不超过 200 个节点
-- 批量烘焙使用 `bake_batch` 而非多次 `bake` 调用
-- 增量更新使用 `bake_partial` 避免全量重建
 - 烘焙后 `AssetDatabase.Refresh()` 会自动触发
 
 ## 九、常见问题
@@ -485,40 +380,7 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 
 ## 十、完整示例
 
-### 示例 A：DSL 格式（推荐）
-
-```
-# 设置界面 - 缩进 DSL
-div SettingsPage 942x2048 bg:#1a1f2e flex:col center
-  img bg stretch bg:#141824
-  div @topBar stretch-h bg:#0d1117 h:80 flex:center border:2:#2d4a7a
-    text txt.Title "系统设置" color:#e0e6ed fs:36 bold
-  div @contentLayer center flex:col gap:24 w:600 pad:120,0,0,0
-    div @volumeRow flex:col gap:8
-      text txt.VolumeLabel "音量" color:#a0aec0 fs:20
-      slider slider.Volume value:0.8 bg:#2d3748 h:36 r:18
-    toggle toggle.Fullscreen checked "全屏模式" color:#e0e6ed fs:20 h:48
-    div @qualityRow flex:col gap:8
-      text txt.QualityLabel "画质" color:#a0aec0 fs:20
-      select dropdown.Quality "低画质,中画质,高画质" bg:#2d3748 h:48 color:#e0e6ed fs:18 r:8
-    btn btn.Save "保存设置" bg:#3182ce color:#ffffff fs:22 bold h:56 r:12
-```
-
-调用烘焙：
-```
-bake_ugui(
-    action="bake_from_dsl",
-    dsl_content="[上面的 DSL]",
-    prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/SettingsPage.prefab",
-    reference_width=942,
-    reference_height=2048,
-    use_tmp=True,
-    font_path="Assets/Fonts/NotoSansSC.asset",
-    template_prefab="Assets/Prefabs/UI/UITemplate.prefab"
-)
-```
-
-### 示例 B：HTML 格式（兼容）
+### 设置界面 HTML
 
 ```html
 <div data-u-type="div" data-u-name="SettingsPage"

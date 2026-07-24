@@ -1,11 +1,11 @@
 ---
 title: "ugui tools"
 sidebar_label: "ugui"
-description: "MCP for Unity tools in the ugui group."
+description: "MCP for Unity tools for UGUI prefab baking."
 ---
 
 # `ugui` tools
 
-uGUI (Canvas, RectTransform, Image, Text, Button) template creation
+UGUI prefab baking — convert UI-DSL HTML into Canvas-based prefabs
 
-- **[`manage_ui_template`](./manage_ui_template.md)** — Creates and manages uGUI (Canvas-based) UI template GameObjects in Unity.
+- **[`bake_ugui`](../core/bake_ugui)** — Bake UGUI prefabs from UI-DSL HTML. The AI assistant converts arbitrary input (natural language, screenshots, existing HTML) into standard HTML, then bakes it to a `.prefab`. Returns the HTML as `htmlContent` for verification.

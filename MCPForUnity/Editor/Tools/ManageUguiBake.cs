@@ -4,6 +4,9 @@
 //
 // 注册方式：[McpForUnityTool("bake_ugui", Group = "core")]
 // Python 端对应文件：Server/src/services/tools/bake_ugui.py
+//
+// 唯一烘焙入口：bake_from_html（HTML → JSON → Prefab 一步到位）。
+// AI 助手负责将任意输入（自然语言/截图/HTML）转换为标准 UI-DSL HTML 后调用本工具。
 
 using System;
 using System.Collections.Generic;
@@ -19,17 +22,11 @@ namespace MCPForUnity.Editor.Tools
     {
         // ──────────────────── Action 常量 ────────────────────
 
-        private const string ActionBake = "bake";
-        private const string ActionBakeBatch = "bake_batch";
-        private const string ActionBakePartial = "bake_partial";
+        private const string ActionBakeFromHtml = "bake_from_html";
         private const string ActionList = "list";
         private const string ActionDelete = "delete";
-        private const string ActionGetDsl = "get_dsl";
+        private const string ActionGetSpec = "get_spec";
         private const string ActionGenerateScript = "generate_view_script";
-        private const string ActionParseHtml = "parse_html";
-        private const string ActionBakeFromHtml = "bake_from_html";
-        private const string ActionParseDsl = "parse_dsl";
-        private const string ActionBakeFromDsl = "bake_from_dsl";
 
         // ──────────────────── 命令处理 ────────────────────
 
@@ -47,129 +44,56 @@ namespace MCPForUnity.Editor.Tools
 
             switch (action)
             {
-                case ActionBake:
-                    return HandleBake(@params);
-                case ActionBakeBatch:
-                    return HandleBakeBatch(@params);
-                case ActionBakePartial:
-                    return HandleBakePartial(@params);
+                case ActionBakeFromHtml:
+                    return HandleBakeFromHtml(@params);
                 case ActionList:
                     return HandleList(@params);
                 case ActionDelete:
                     return HandleDelete(@params);
-                case ActionGetDsl:
-                    return HandleGetDsl();
+                case ActionGetSpec:
+                    return HandleGetSpec();
                 case ActionGenerateScript:
                     return HandleGenerateScript(@params);
-                case ActionParseHtml:
-                    return HandleParseHtml(@params);
-                case ActionBakeFromHtml:
-                    return HandleBakeFromHtml(@params);
-                case ActionParseDsl:
-                    return HandleParseDsl(@params);
-                case ActionBakeFromDsl:
-                    return HandleBakeFromDsl(@params);
                 default:
                     return new ErrorResponse(
-                        $"Unknown action: '{action}'. Valid actions: {ActionBake}, {ActionBakeBatch}, " +
-                        $"{ActionBakePartial}, {ActionList}, {ActionDelete}, {ActionGetDsl}, {ActionGenerateScript}, " +
-                        $"{ActionParseHtml}, {ActionBakeFromHtml}, {ActionParseDsl}, {ActionBakeFromDsl}");
+                        $"Unknown action: '{action}'. Valid actions: {ActionBakeFromHtml}, " +
+                        $"{ActionList}, {ActionDelete}, {ActionGetSpec}, {ActionGenerateScript}");
             }
         }
 
-        // ──────────────────── Action: bake ────────────────────
+        // ──────────────────── Action: bake_from_html ────────────────────
 
-        private static object HandleBake(JObject @params)
+        private static object HandleBakeFromHtml(JObject @params)
         {
-            string jsonContent = @params["json_content"]?.ToString();
-            if (string.IsNullOrWhiteSpace(jsonContent))
-                return new ErrorResponse("Required parameter 'json_content' is missing or empty.");
+            string htmlContent = @params["html_content"]?.ToString();
+            if (string.IsNullOrWhiteSpace(htmlContent))
+                return new ErrorResponse("Required parameter 'html_content' is missing or empty.");
 
             string prefabPath = @params["prefab_path"]?.ToString();
-            if (string.IsNullOrWhiteSpace(prefabPath))
-                return new ErrorResponse("Required parameter 'prefab_path' is missing or empty.");
-
-            int width = @params["reference_width"]?.Value<int>() ?? 942;
-            int height = @params["reference_height"]?.Value<int>() ?? 2048;
-            bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
-            string templatePrefab = @params["template_prefab"]?.ToString();
-            string sourceHtml = @params["source_html"]?.ToString();
-            bool saveSnapshot = @params["save_snapshot"]?.Value<bool>() ?? true;
-            string fontPath = @params["font_path"]?.ToString();
-
-            try
-            {
-                var result = UguiBake.UguiBakeBridge.Bake(
-                    jsonContent, prefabPath, width, height, useTMP,
-                    templatePrefab, sourceHtml, saveSnapshot, fontPath);
-                return ToResponse(result);
-            }
-            catch (Exception e)
-            {
-                return new ErrorResponse($"Bake failed: {e.Message}");
-            }
-        }
-
-        // ──────────────────── Action: bake_batch ────────────────────
-
-        private static object HandleBakeBatch(JObject @params)
-        {
-            string jsonArray = @params["json_array"]?.ToString();
-            if (string.IsNullOrWhiteSpace(jsonArray))
-                return new ErrorResponse("Required parameter 'json_array' is missing or empty.");
-
-            string outputDir = @params["output_dir"]?.ToString();
-            int width = @params["reference_width"]?.Value<int>() ?? 942;
-            int height = @params["reference_height"]?.Value<int>() ?? 2048;
-            bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
-            string fontPath = @params["font_path"]?.ToString();
-
-            try
-            {
-                string jsonArrayStr;
-                var jsonToken = @params["json_array"];
-                if (jsonToken.Type == JTokenType.Array)
-                    jsonArrayStr = jsonToken.ToString(Newtonsoft.Json.Formatting.None);
-                else
-                    jsonArrayStr = jsonToken.ToString();
-
-                var result = UguiBake.UguiBakeBridge.BakeBatch(jsonArrayStr, outputDir, width, height, useTMP, fontPath);
-                return ToResponse(result);
-            }
-            catch (Exception e)
-            {
-                return new ErrorResponse($"BakeBatch failed: {e.Message}");
-            }
-        }
-
-        // ──────────────────── Action: bake_partial ────────────────────
-
-        private static object HandleBakePartial(JObject @params)
-        {
-            string prefabPath = @params["prefab_path"]?.ToString();
-            string nodePath = @params["node_path"]?.ToString();
-            string jsonContent = @params["json_content"]?.ToString();
-
             if (string.IsNullOrWhiteSpace(prefabPath))
                 return new ErrorResponse("Required parameter 'prefab_path' is missing.");
-            if (string.IsNullOrWhiteSpace(nodePath))
-                return new ErrorResponse("Required parameter 'node_path' is missing.");
-            if (string.IsNullOrWhiteSpace(jsonContent))
-                return new ErrorResponse("Required parameter 'json_content' is missing.");
 
             int width = @params["reference_width"]?.Value<int>() ?? 942;
             int height = @params["reference_height"]?.Value<int>() ?? 2048;
             bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
+            string sourceHtml = @params["source_html"]?.ToString();
+            string templatePrefab = @params["template_prefab"]?.ToString();
             string fontPath = @params["font_path"]?.ToString();
+            string userInputContent = @params["user_input_content"]?.ToString();
+            string userInputExtension = @params["user_input_extension"]?.ToString() ?? "txt";
+            string userInputSourcePath = @params["user_input_source_path"]?.ToString();
 
             try
             {
-                var result = UguiBake.UguiBakeBridge.BakePartial(prefabPath, nodePath, jsonContent, width, height, useTMP, fontPath);
+                var result = UguiBake.UguiBakeBridge.BakeFromHtml(
+                    htmlContent, prefabPath, width, height, useTMP,
+                    sourceHtml, templatePrefab, fontPath, true,
+                    userInputContent, userInputExtension, userInputSourcePath);
                 return ToResponse(result);
             }
             catch (Exception e)
             {
-                return new ErrorResponse($"BakePartial failed: {e.Message}");
+                return new ErrorResponse($"BakeFromHtml failed: {e.Message}");
             }
         }
 
@@ -209,18 +133,18 @@ namespace MCPForUnity.Editor.Tools
             }
         }
 
-        // ──────────────────── Action: get_dsl ────────────────────
+        // ──────────────────── Action: get_spec ────────────────────
 
-        private static object HandleGetDsl()
+        private static object HandleGetSpec()
         {
             try
             {
-                var result = UguiBake.UguiBakeBridge.GetDsl();
+                var result = UguiBake.UguiBakeBridge.GetSpec();
                 return ToResponse(result);
             }
             catch (Exception e)
             {
-                return new ErrorResponse($"GetDsl failed: {e.Message}");
+                return new ErrorResponse($"GetSpec failed: {e.Message}");
             }
         }
 
@@ -243,110 +167,6 @@ namespace MCPForUnity.Editor.Tools
             catch (Exception e)
             {
                 return new ErrorResponse($"GenerateViewScript failed: {e.Message}");
-            }
-        }
-
-        // ──────────────────── Action: parse_html ────────────────────
-
-        private static object HandleParseHtml(JObject @params)
-        {
-            string htmlContent = @params["html_content"]?.ToString();
-            if (string.IsNullOrWhiteSpace(htmlContent))
-                return new ErrorResponse("Required parameter 'html_content' is missing or empty.");
-
-            int width = @params["reference_width"]?.Value<int>() ?? 942;
-            int height = @params["reference_height"]?.Value<int>() ?? 2048;
-
-            try
-            {
-                var result = UguiBake.UguiBakeBridge.ParseHtml(htmlContent, width, height);
-                return ToResponse(result);
-            }
-            catch (Exception e)
-            {
-                return new ErrorResponse($"ParseHtml failed: {e.Message}");
-            }
-        }
-
-        // ──────────────────── Action: bake_from_html ────────────────────
-
-        private static object HandleBakeFromHtml(JObject @params)
-        {
-            string htmlContent = @params["html_content"]?.ToString();
-            if (string.IsNullOrWhiteSpace(htmlContent))
-                return new ErrorResponse("Required parameter 'html_content' is missing or empty.");
-
-            string prefabPath = @params["prefab_path"]?.ToString();
-            if (string.IsNullOrWhiteSpace(prefabPath))
-                return new ErrorResponse("Required parameter 'prefab_path' is missing.");
-
-            int width = @params["reference_width"]?.Value<int>() ?? 942;
-            int height = @params["reference_height"]?.Value<int>() ?? 2048;
-            bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
-            string sourceHtml = @params["source_html"]?.ToString();
-            string templatePrefab = @params["template_prefab"]?.ToString();
-            string fontPath = @params["font_path"]?.ToString();
-
-            try
-            {
-                var result = UguiBake.UguiBakeBridge.BakeFromHtml(htmlContent, prefabPath, width, height, useTMP, sourceHtml, templatePrefab, fontPath);
-                return ToResponse(result);
-            }
-            catch (Exception e)
-            {
-                return new ErrorResponse($"BakeFromHtml failed: {e.Message}");
-            }
-        }
-
-        // ──────────────────── Action: parse_dsl ────────────────────
-
-        private static object HandleParseDsl(JObject @params)
-        {
-            string dslContent = @params["dsl_content"]?.ToString();
-            if (string.IsNullOrWhiteSpace(dslContent))
-                return new ErrorResponse("Required parameter 'dsl_content' is missing or empty.");
-
-            int width = @params["reference_width"]?.Value<int>() ?? 942;
-            int height = @params["reference_height"]?.Value<int>() ?? 2048;
-
-            try
-            {
-                var result = UguiBake.UguiBakeBridge.ParseDsl(dslContent, width, height);
-                return ToResponse(result);
-            }
-            catch (Exception e)
-            {
-                return new ErrorResponse($"ParseDsl failed: {e.Message}");
-            }
-        }
-
-        // ──────────────────── Action: bake_from_dsl ────────────────────
-
-        private static object HandleBakeFromDsl(JObject @params)
-        {
-            string dslContent = @params["dsl_content"]?.ToString();
-            if (string.IsNullOrWhiteSpace(dslContent))
-                return new ErrorResponse("Required parameter 'dsl_content' is missing or empty.");
-
-            string prefabPath = @params["prefab_path"]?.ToString();
-            if (string.IsNullOrWhiteSpace(prefabPath))
-                return new ErrorResponse("Required parameter 'prefab_path' is missing.");
-
-            int width = @params["reference_width"]?.Value<int>() ?? 942;
-            int height = @params["reference_height"]?.Value<int>() ?? 2048;
-            bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
-            string sourceHtml = @params["source_html"]?.ToString();
-            string templatePrefab = @params["template_prefab"]?.ToString();
-            string fontPath = @params["font_path"]?.ToString();
-
-            try
-            {
-                var result = UguiBake.UguiBakeBridge.BakeFromDsl(dslContent, prefabPath, width, height, useTMP, sourceHtml, templatePrefab, fontPath);
-                return ToResponse(result);
-            }
-            catch (Exception e)
-            {
-                return new ErrorResponse($"BakeFromDsl failed: {e.Message}");
             }
         }
 

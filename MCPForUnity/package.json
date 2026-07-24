@@ -1,11 +1,12 @@
 {
   "name": "com.coplaydev.unity-mcp",
-  "version": "10.1.1-beta.1",
-  "displayName": "MCP for Unity",
-  "description": "A bridge that connects AI assistants to Unity via the MCP (Model Context Protocol). Allows AI clients like Claude Code, Cursor, and VSCode to directly control your Unity Editor for enhanced development workflows.\n\nFeatures automated setup wizard, cross-platform support, and seamless integration with popular AI development tools.\n\nJoin Our Discord: https://discord.gg/y4p8KfzrN4",
+  "version": "10.1.1-luna.1",
+  "displayName": "MCP for Unity (Luna)",
+  "description": "A bridge that connects AI assistants to Unity via the MCP (Model Context Protocol). Allows AI clients like Claude Code, Cursor, and VSCode to directly control your Unity Editor for enhanced development workflows.\n\nFeatures automated setup wizard, cross-platform support, and seamless integration with popular AI development tools.\n\nFork of CoplayDev/unity-mcp with Luna customizations. MIT licensed.",
   "unity": "2021.3",
-  "documentationUrl": "https://github.com/CoplayDev/unity-mcp",
-  "licensesUrl": "https://github.com/CoplayDev/unity-mcp/blob/main/LICENSE",
+  "documentationUrl": "https://github.com/EasyGame-Vac/unity-mcp",
+  "changelogUrl": "https://github.com/EasyGame-Vac/unity-mcp/releases",
+  "licensesUrl": "https://github.com/EasyGame-Vac/unity-mcp/blob/dev/luna/LICENSE",
   "dependencies": {
     "com.unity.modules.animation": "1.0.0",
     "com.unity.modules.imageconversion": "1.0.0",
@@ -27,8 +28,7 @@
     "mcp-client"
   ],
   "author": {
-    "name": "Coplay",
-    "email": "support@coplay.dev",
-    "url": "https://coplay.dev"
+    "name": "EasyGame-Vac",
+    "url": "https://github.com/EasyGame-Vac"
   }
 }

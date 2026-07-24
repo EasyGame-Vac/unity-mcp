@@ -1,16 +1,17 @@
 // UguiBakeBridge.cs
 // MCP 桥接层：封装 UguiPrefabBakerCore 调用，供 execute_code 或专用 MCP 工具使用。
+// 唯一烘焙入口：BakeFromHtml（HTML → JSON → Prefab 一步到位）。
 // 所有方法返回 Dictionary<string, object> 以便 JSON 序列化。
 //
 // 使用方式（通过 execute_code）：
-//   return UguiBakeBridge.Bake(jsonContent, "Assets/Baked/MyPage.prefab", 942, 2048);
+//   return UguiBakeBridge.BakeFromHtml(htmlContent, "Assets/Baked/MyPage.prefab", 942, 2048);
 //
 
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEditor;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -31,104 +32,208 @@ namespace MCPForUnity.Editor.UguiBake
         public const string DefaultJsonDir = "Assets/MCP/UguiBake/Baked/Json";
         public const string BackupDir = "Assets/MCP/UguiBake/Baked/Prefabs/.backup";
 
-        // ──────────────────── 单个烘焙 ────────────────────
+        // ──────────────────── HTML → 预制体（唯一烘焙入口） ────────────────────
 
         /// <summary>
-        /// 烘焙单个 UIDataNode JSON → UGUI 预制体。
+        /// 从 HTML 直接烘焙预制体（解析 + 烘焙一步到位）。
+        /// 返回结果中包含 htmlContent 字段，供调用方获取生成的 HTML。
         /// </summary>
-        /// <param name="jsonContent">符合 UIDataNode 结构的 JSON 字符串</param>
-        /// <param name="prefabPath">输出预制体 Assets 相对路径（如 Assets/Baked/LoginPage.prefab）</param>
-        /// <param name="width">设计分辨率宽（默认 942）</param>
-        /// <param name="height">设计分辨率高（默认 2048）</param>
-        /// <param name="useTMP">使用 TextMeshPro（默认 true）</param>
+        /// <param name="htmlContent">符合 UI-DSL 规范的 HTML 字符串</param>
+        /// <param name="prefabPath">输出预制体路径</param>
+        /// <param name="width">基准分辨率宽</param>
+        /// <param name="height">基准分辨率高</param>
+        /// <param name="useTMP">使用 TextMeshPro</param>
+        /// <param name="sourceHtmlPath">源 HTML 路径（用于图片解析）</param>
         /// <param name="templatePrefabPath">模板预制体路径（可选，根节点需有 Canvas）</param>
-        /// <param name="sourceHtmlPath">源 HTML 路径（可选，用于图片路径解析）</param>
-        /// <param name="saveSnapshot">是否保存 JSON 快照（默认 true）</param>
-        public static Dictionary<string, object> Bake(
-            string jsonContent,
+        /// <param name="fontPath">字体资源路径</param>
+        /// <param name="skipIfUnchanged">增量烘焙：当 JSON 与上次快照一致且预制体已存在时跳过重新烘焙</param>
+        public static Dictionary<string, object> BakeFromHtml(
+            string htmlContent,
             string prefabPath,
             int width = 942,
             int height = 2048,
             bool useTMP = true,
-            string templatePrefabPath = null,
             string sourceHtmlPath = null,
-            bool saveSnapshot = true,
-            string fontPath = null)
+            string templatePrefabPath = null,
+            string fontPath = null,
+            bool skipIfUnchanged = true,
+            string userInputContent = null,
+            string userInputExtension = "txt",
+            string userInputSourcePath = null)
         {
             var result = new Dictionary<string, object>();
+            var report = BakeReport.Begin(prefabPath, "html");
 
             // 1. 参数校验
-            if (string.IsNullOrWhiteSpace(jsonContent))
-                return ErrorResult("jsonContent 不能为空");
+            if (string.IsNullOrWhiteSpace(htmlContent))
+            {
+                report.LogError("validate", "htmlContent 不能为空");
+                report.Finish(false, 0);
+                result["bakeReport"] = report.ToSummaryString();
+                return ErrorResult("htmlContent 不能为空");
+            }
             if (string.IsNullOrWhiteSpace(prefabPath))
+            {
+                report.LogError("validate", "prefabPath 不能为空");
+                report.Finish(false, 0);
+                result["bakeReport"] = report.ToSummaryString();
                 return ErrorResult("prefabPath 不能为空");
+            }
 
             prefabPath = prefabPath.Replace("\\", "/").Trim();
             if (!prefabPath.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+            {
+                report.LogError("validate", "prefabPath 必须以 .prefab 结尾");
+                report.Finish(false, 0);
+                result["bakeReport"] = report.ToSummaryString();
                 return ErrorResult("prefabPath 必须以 .prefab 结尾");
+            }
             if (!prefabPath.StartsWith("Assets/", StringComparison.Ordinal))
+            {
+                report.LogError("validate", "prefabPath 必须以 Assets/ 开头");
+                report.Finish(false, 0);
+                result["bakeReport"] = report.ToSummaryString();
                 return ErrorResult("prefabPath 必须以 Assets/ 开头");
+            }
 
-            // 2. JSON 校验
+            // 2. 解析 HTML → JSON
+            string jsonContent;
+            try
+            {
+                jsonContent = HtmlToUguiParser.Parse(htmlContent, width, height);
+                report.LogInfo("parse", "HTML 解析成功");
+            }
+            catch (Exception e)
+            {
+                report.LogError("parse", $"HTML 解析失败: {e.Message}");
+                report.Finish(false, 0);
+                result["bakeReport"] = report.ToSummaryString();
+                return ErrorResult($"HTML 解析失败: {e.Message}");
+            }
+
+            // 3. JSON 校验
             if (!UguiPrefabBakerCore.TryValidateJson(jsonContent, out string validateError))
+            {
+                report.LogError("validate", "JSON 校验失败: " + validateError);
+                report.Finish(false, 0);
+                result["bakeReport"] = report.ToSummaryString();
                 return ErrorResult("JSON 校验失败: " + validateError);
+            }
+            report.LogInfo("validate", "JSON 校验通过");
 
-            // 3. 解析根节点名（用于快照命名）
+            // 4. 解析根节点名（用于快照命名）
             string pageName = "Unknown";
+            int nodeCount = 0;
             try
             {
                 var rootNode = JsonConvert.DeserializeObject<UIDataNode>(jsonContent);
                 if (rootNode != null && !string.IsNullOrEmpty(rootNode.name))
                     pageName = rootNode.name;
+                nodeCount = CountNodes(rootNode);
             }
             catch { /* 忽略，用默认名 */ }
+            report.LogInfo("parse", $"页面: {pageName}, 节点数: {nodeCount}");
 
-            // 4. 保存 JSON 快照
+            // 4.2 确保输出目录存在，并把用户原始输入与转换后的 HTML 固化到预制体同目录。
+            EnsureAssetFolderForPath(prefabPath);
+            string convertedHtmlPath = null;
+            string userInputPath = null;
+            try
+            {
+                SaveBakeSourceFiles(prefabPath, htmlContent, userInputContent, userInputExtension, userInputSourcePath,
+                    out convertedHtmlPath, out userInputPath);
+                if (!string.IsNullOrEmpty(convertedHtmlPath))
+                    report.LogInfo("bake", $"转换 HTML 已保存: {convertedHtmlPath}");
+                if (!string.IsNullOrEmpty(userInputPath))
+                    report.LogInfo("bake", $"用户输入已保存: {userInputPath}");
+            }
+            catch (Exception e)
+            {
+                report.LogWarning("bake", $"输入/HTML 保存失败: {e.Message}");
+                Debug.LogWarning($"[UguiBakeBridge] 输入/HTML 保存失败（不影响烘焙）: {e.Message}");
+            }
+
+            // 4.5 增量烘焙：JSON 未变更时跳过重新烘焙
+            if (skipIfUnchanged && AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
+            {
+                string prevSnapshot = FindLatestJsonSnapshot(pageName);
+                if (prevSnapshot != null && IsJsonEquivalent(jsonContent, File.ReadAllText(prevSnapshot)))
+                {
+                    report.LogInfo("bake", "JSON 与上次快照一致，跳过烘焙（增量模式）");
+                    report.Finish(true, nodeCount);
+                    result["bakeReport"] = report.ToSummaryString();
+                    result["bakeElapsedMs"] = report.GetTotalElapsedMs();
+                    result["success"] = true;
+                    result["prefabPath"] = prefabPath;
+                    result["pageName"] = pageName;
+                    result["nodeCount"] = nodeCount;
+                    result["skipped"] = true;
+                    result["message"] = $"JSON 未变更，跳过烘焙: {pageName}";
+                    result["htmlContent"] = htmlContent;
+                    if (!string.IsNullOrEmpty(convertedHtmlPath))
+                        result["convertedHtmlPath"] = convertedHtmlPath;
+                    if (!string.IsNullOrEmpty(userInputPath))
+                        result["userInputPath"] = userInputPath;
+                    return result;
+                }
+            }
+
+            // 5. 保存 JSON 快照
             string snapshotPath = null;
-            if (saveSnapshot)
+            if (true) // 始终保存快照
             {
                 try
                 {
                     snapshotPath = SaveJsonSnapshot(jsonContent, pageName);
+                    report.LogInfo("bake", $"JSON 快照已保存: {snapshotPath}");
                 }
                 catch (Exception e)
                 {
+                    report.LogWarning("bake", $"JSON 快照保存失败: {e.Message}");
                     Debug.LogWarning($"[UguiBakeBridge] JSON 快照保存失败（不影响烘焙）: {e.Message}");
                 }
             }
 
-            // 5. 备份现有预制体
+            // 6. 备份现有预制体
             string backupPath = null;
             if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
             {
                 try
                 {
                     backupPath = BackupPrefab(prefabPath);
+                    report.LogInfo("bake", $"已备份旧预制体: {backupPath}");
                 }
                 catch (Exception e)
                 {
+                    report.LogWarning("bake", $"预制体备份失败: {e.Message}");
                     Debug.LogWarning($"[UguiBakeBridge] 预制体备份失败（不影响烘焙）: {e.Message}");
                 }
             }
 
-            // 6. 确保输出目录存在
+            // 7. 确保输出目录存在
             EnsureAssetFolderForPath(prefabPath);
 
-            // 7. 解析模板预制体
+            // 8. 解析模板预制体
             GameObject templatePrefab = null;
             if (!string.IsNullOrEmpty(templatePrefabPath))
             {
                 templatePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(templatePrefabPath);
                 if (templatePrefab == null)
+                {
+                    report.LogError("bake", $"模板预制体未找到: {templatePrefabPath}");
+                    report.Finish(false, nodeCount);
+                    result["bakeReport"] = report.ToSummaryString();
                     return ErrorResult($"模板预制体未找到: {templatePrefabPath}");
+                }
             }
 
-            // 8. 加载字体
+            // 9. 加载字体
             TMP_FontAsset tmpFont = null;
             Font legacyFont = null;
             LoadFonts(fontPath, useTMP, out tmpFont, out legacyFont);
 
-            // 9. 执行烘焙
+            // 10. 执行烘焙
+            report.LogInfo("bake", $"开始烘焙 → {prefabPath}");
             var refSize = new Vector2(width, height);
             string bakeError;
 
@@ -149,15 +254,27 @@ namespace MCPForUnity.Editor.UguiBake
             }
             catch (Exception e)
             {
+                report.LogError("bake", $"烘焙异常: {e.Message}");
+                report.Finish(false, nodeCount);
+                result["bakeReport"] = report.ToSummaryString();
                 return ErrorResult($"烘焙异常: {e.Message}");
             }
 
-            // 10. 构建结果
+            // 11. 构建结果
+            report.Finish(success, nodeCount);
+            result["bakeReport"] = report.ToSummaryString();
+            result["bakeElapsedMs"] = report.GetTotalElapsedMs();
             result["success"] = success;
             result["prefabPath"] = prefabPath;
             result["pageName"] = pageName;
+            result["nodeCount"] = nodeCount;
             result["resolution"] = new { width, height };
             result["useTMP"] = useTMP;
+            result["htmlContent"] = htmlContent;
+            if (!string.IsNullOrEmpty(convertedHtmlPath))
+                result["convertedHtmlPath"] = convertedHtmlPath;
+            if (!string.IsNullOrEmpty(userInputPath))
+                result["userInputPath"] = userInputPath;
             if (!string.IsNullOrEmpty(fontPath))
                 result["fontPath"] = fontPath;
             if (tmpFont != null)
@@ -171,240 +288,13 @@ namespace MCPForUnity.Editor.UguiBake
 
             if (!success)
             {
+                report.LogError("bake", bakeError ?? "未知烘焙错误");
                 result["error"] = bakeError ?? "未知烘焙错误";
             }
             else
             {
                 result["message"] = $"成功烘焙 '{pageName}' → {prefabPath}";
-                // 刷新 AssetDatabase
                 AssetDatabase.Refresh();
-            }
-
-            return result;
-        }
-
-        // ──────────────────── 批量烘焙 ────────────────────
-
-        /// <summary>
-        /// 批量烘焙多个 JSON → 多个预制体。
-        /// </summary>
-        /// <param name="jsonArrayContent">JSON 数组字符串，每个元素为 { json: "...", prefabPath: "..." } 或直接为 UIDataNode JSON（此时预制体名从根节点 name 推导）</param>
-        /// <param name="outputDir">输出目录（Assets 相对路径），当 JSON 元素未指定 prefabPath 时使用</param>
-        /// <param name="width">设计分辨率宽</param>
-        /// <param name="height">设计分辨率高</param>
-        /// <param name="useTMP">使用 TextMeshPro</param>
-        public static Dictionary<string, object> BakeBatch(
-            string jsonArrayContent,
-            string outputDir,
-            int width = 942,
-            int height = 2048,
-            bool useTMP = true,
-            string fontPath = null)
-        {
-            var result = new Dictionary<string, object>();
-
-            if (string.IsNullOrWhiteSpace(jsonArrayContent))
-                return ErrorResult("jsonArrayContent 不能为空");
-
-            outputDir = (outputDir ?? DefaultPrefabDir).Replace("\\", "/").Trim();
-            if (!outputDir.StartsWith("Assets/", StringComparison.Ordinal))
-                return ErrorResult("outputDir 必须以 Assets/ 开头");
-
-            EnsureAssetFolder(outputDir);
-
-            JArray items;
-            try
-            {
-                items = JArray.Parse(jsonArrayContent);
-            }
-            catch (Exception e)
-            {
-                return ErrorResult("JSON 数组解析失败: " + e.Message);
-            }
-
-            var results = new List<Dictionary<string, object>>();
-            int successCount = 0;
-            int failCount = 0;
-
-            for (int i = 0; i < items.Count; i++)
-            {
-                var item = items[i];
-                string itemJson = null;
-                string itemPrefabPath = null;
-
-                if (item.Type == JTokenType.Object)
-                {
-                    // 检查是否有 json/prefabPath 字段
-                    var jsonToken = item["json"];
-                    var pathToken = item["prefabPath"];
-
-                    if (jsonToken != null)
-                    {
-                        itemJson = jsonToken.ToString(Formatting.None);
-                        // 如果 json 本身是对象，需要取其字符串形式
-                        if (jsonToken.Type == JTokenType.Object)
-                            itemJson = jsonToken.ToString(Formatting.None);
-                        else if (jsonToken.Type == JTokenType.String)
-                            itemJson = jsonToken.Value<string>();
-                    }
-                    else
-                    {
-                        // 整个对象就是一个 UIDataNode
-                        itemJson = item.ToString(Formatting.None);
-                    }
-
-                    if (pathToken != null)
-                        itemPrefabPath = pathToken.Value<string>();
-                }
-                else if (item.Type == JTokenType.String)
-                {
-                    itemJson = item.Value<string>();
-                }
-
-                // 如果没有指定 prefabPath，从根节点 name 推导
-                if (string.IsNullOrEmpty(itemPrefabPath))
-                {
-                    string pageName = ExtractPageName(itemJson);
-                    itemPrefabPath = $"{outputDir}/{pageName}.prefab";
-                }
-
-                var bakeResult = Bake(itemJson, itemPrefabPath, width, height, useTMP, null, null, true, fontPath);
-                results.Add(bakeResult);
-
-                if (bakeResult.TryGetValue("success", out var suc) && suc is bool b && b)
-                    successCount++;
-                else
-                    failCount++;
-            }
-
-            result["success"] = failCount == 0;
-            result["total"] = items.Count;
-            result["succeeded"] = successCount;
-            result["failed"] = failCount;
-            result["results"] = results;
-            result["message"] = $"批量烘焙完成: {successCount} 成功, {failCount} 失败 (共 {items.Count})";
-
-            return result;
-        }
-
-        // ──────────────────── 增量更新 ────────────────────
-
-        /// <summary>
-        /// 增量更新预制体的指定子树。
-        /// 加载现有预制体，找到 nodePath 对应的节点，删除其子节点并重新烘焙 jsonContent。
-        /// </summary>
-        /// <param name="prefabPath">现有预制体路径</param>
-        /// <param name="nodePath">目标节点路径（如 "content/@topHud"），用 / 分隔</param>
-        /// <param name="jsonContent">要烘焙到该位置的 UIDataNode JSON（可以是单个节点或含 children 的容器）</param>
-        /// <param name="width">设计分辨率宽</param>
-        /// <param name="height">设计分辨率高</param>
-        /// <param name="useTMP">使用 TextMeshPro</param>
-        public static Dictionary<string, object> BakePartial(
-            string prefabPath,
-            string nodePath,
-            string jsonContent,
-            int width = 942,
-            int height = 2048,
-            bool useTMP = true,
-            string fontPath = null)
-        {
-            var result = new Dictionary<string, object>();
-
-            if (string.IsNullOrWhiteSpace(prefabPath))
-                return ErrorResult("prefabPath 不能为空");
-            if (string.IsNullOrWhiteSpace(nodePath))
-                return ErrorResult("nodePath 不能为空");
-            if (string.IsNullOrWhiteSpace(jsonContent))
-                return ErrorResult("jsonContent 不能为空");
-
-            prefabPath = prefabPath.Replace("\\", "/").Trim();
-
-            var existingPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-            if (existingPrefab == null)
-                return ErrorResult($"预制体未找到: {prefabPath}");
-
-            // 校验 JSON
-            if (!UguiPrefabBakerCore.TryValidateJson(jsonContent, out string validateError))
-                return ErrorResult("JSON 校验失败: " + validateError);
-
-            // 备份
-            string backupPath = null;
-            try { backupPath = BackupPrefab(prefabPath); }
-            catch { /* 忽略 */ }
-
-            // 加载预制体内容
-            GameObject contents = null;
-            try
-            {
-                contents = PrefabUtility.LoadPrefabContents(prefabPath);
-
-                // 找到目标节点
-                Transform targetNode = FindNodeByPath(contents.transform, nodePath);
-                if (targetNode == null)
-                    return ErrorResult($"在预制体中未找到节点路径: {nodePath}");
-
-                // 解析 JSON
-                var rootNode = UguiPrefabBakerCore.ParseUiDataJson(jsonContent);
-
-                // 删除目标节点的所有子节点
-                for (int i = targetNode.childCount - 1; i >= 0; i--)
-                {
-                    var child = targetNode.GetChild(i);
-                    UnityEngine.Object.DestroyImmediate(child.gameObject);
-                }
-
-                // 在目标节点下烘焙新的子树
-                float px = targetNode.GetComponent<RectTransform>()?.anchoredPosition.x ?? 0;
-                float py = targetNode.GetComponent<RectTransform>()?.anchoredPosition.y ?? 0;
-                var rect = targetNode.GetComponent<RectTransform>();
-                float pw = rect != null ? rect.rect.width : width;
-                float ph = rect != null ? rect.rect.height : height;
-
-                // 加载字体
-                TMP_FontAsset tmpFont = null;
-                Font legacyFont = null;
-                LoadFonts(fontPath, useTMP, out tmpFont, out legacyFont);
-
-                UguiPrefabBakerCore.BeginImageResolveSession(null);
-                UguiPrefabBakerCore.BeginFontSession(tmpFont, legacyFont);
-                try
-                {
-                    if (rootNode.children != null && rootNode.children.Count > 0)
-                    {
-                        foreach (var child in rootNode.children)
-                            UguiPrefabBakerCore.CreateUINode(child, targetNode, px, py, pw, ph, useTMP);
-                    }
-                    else
-                    {
-                        UguiPrefabBakerCore.CreateUINode(rootNode, targetNode, px, py, pw, ph, useTMP);
-                    }
-                }
-                finally
-                {
-                    UguiPrefabBakerCore.EndImageResolveSession();
-                    UguiPrefabBakerCore.EndFontSession();
-                }
-
-                // 保存
-                PrefabUtility.SaveAsPrefabAsset(contents, prefabPath);
-
-                result["success"] = true;
-                result["prefabPath"] = prefabPath;
-                result["nodePath"] = nodePath;
-                if (backupPath != null)
-                    result["backup"] = backupPath;
-                result["message"] = $"增量更新成功: {prefabPath} @ {nodePath}";
-
-                AssetDatabase.Refresh();
-            }
-            catch (Exception e)
-            {
-                return ErrorResult($"增量更新异常: {e.Message}");
-            }
-            finally
-            {
-                if (contents != null)
-                    PrefabUtility.UnloadPrefabContents(contents);
             }
 
             return result;
@@ -446,7 +336,6 @@ namespace MCPForUnity.Editor.UguiBake
                 if (canvas != null)
                     info["hasCanvas"] = true;
 
-                // 统计子节点数
                 info["childCount"] = CountAllChildren(go.transform);
 
                 prefabs.Add(info);
@@ -475,10 +364,8 @@ namespace MCPForUnity.Editor.UguiBake
             if (AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) == null)
                 return ErrorResult($"预制体未找到: {prefabPath}");
 
-            // 删除预制体
             bool deleted = AssetDatabase.DeleteAsset(prefabPath);
 
-            // 尝试删除对应的 JSON 快照
             string pageName = Path.GetFileNameWithoutExtension(prefabPath);
             string jsonSnapshot = $"{DefaultJsonDir}/{pageName}.ugui.json";
             if (AssetDatabase.LoadAssetAtPath<TextAsset>(jsonSnapshot) != null)
@@ -493,212 +380,41 @@ namespace MCPForUnity.Editor.UguiBake
             return result;
         }
 
-        // ──────────────────── 缩进 DSL → JSON / Prefab ────────────────────
+        // ──────────────────── HTML 规范获取 ────────────────────
 
         /// <summary>
-        /// 将缩进 DSL 解析为 UIDataNode JSON（比 HTML 轻 ~65% token，布局引擎自动算坐标）。
+        /// 获取 UI-DSL HTML 规范文本（从 AI-Workflow 文档读取）。
+        /// AI 生成 HTML 前应调用此方法获取规范。
         /// </summary>
-        public static Dictionary<string, object> ParseDsl(
-            string dslContent,
-            int width = 942,
-            int height = 2048)
+        public static Dictionary<string, object> GetSpec()
         {
             var result = new Dictionary<string, object>();
 
-            if (string.IsNullOrWhiteSpace(dslContent))
-                return ErrorResult("dslContent 不能为空");
-
-            try
-            {
-                var diag = IndentDslParser.ParseWithDiagnostics(dslContent, width, height);
-                string json = JsonConvert.SerializeObject(diag.Root, Formatting.Indented);
-                var rootNode = diag.Root;
-
-                result["success"] = true;
-                result["json"] = json;
-                result["pageName"] = rootNode?.name ?? "Unknown";
-                result["resolution"] = new { width, height };
-                result["nodeCount"] = CountNodes(rootNode);
-                if (diag.Warnings.Count > 0)
-                    result["warnings"] = diag.Warnings;
-                string warnSuffix = diag.Warnings.Count > 0 ? $"（{diag.Warnings.Count} 条警告）" : "";
-                result["message"] = $"DSL 解析成功: {rootNode?.name ?? "Unknown"} ({CountNodes(rootNode)} 个节点){warnSuffix}";
-            }
-            catch (Exception e)
-            {
-                return ErrorResult($"DSL 解析失败: {e.Message}");
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// 从缩进 DSL 直接烘焙预制体（解析 + 烘焙一步到位，推荐入口）。
-        /// </summary>
-        public static Dictionary<string, object> BakeFromDsl(
-            string dslContent,
-            string prefabPath,
-            int width = 942,
-            int height = 2048,
-            bool useTMP = true,
-            string sourceHtmlPath = null,
-            string templatePrefabPath = null,
-            string fontPath = null)
-        {
-            if (string.IsNullOrWhiteSpace(dslContent))
-                return ErrorResult("dslContent 不能为空");
-            if (string.IsNullOrWhiteSpace(prefabPath))
-                return ErrorResult("prefabPath 不能为空");
-
-            // 1. 解析 DSL → JSON（带诊断）
-            string json;
-            List<string> dslWarnings = null;
-            try
-            {
-                var diag = IndentDslParser.ParseWithDiagnostics(dslContent, width, height);
-                json = JsonConvert.SerializeObject(diag.Root, Formatting.Indented);
-                dslWarnings = diag.Warnings;
-            }
-            catch (Exception e)
-            {
-                return ErrorResult($"DSL 解析失败: {e.Message}");
-            }
-
-            // 2. 烘焙 JSON → 预制体
-            var bakeResult = Bake(json, prefabPath, width, height, useTMP, templatePrefabPath, sourceHtmlPath, true, fontPath);
-            if (dslWarnings != null && dslWarnings.Count > 0)
-                bakeResult["dslWarnings"] = dslWarnings;
-            return bakeResult;
-        }
-
-        // ──────────────────── HTML → JSON 解析 ────────────────────
-
-        /// <summary>
-        /// 将 UI-DSL HTML 解析为 UIDataNode JSON（纯 C#，无需浏览器）。
-        /// </summary>
-        public static Dictionary<string, object> ParseHtml(
-            string htmlContent,
-            int width = 942,
-            int height = 2048)
-        {
-            var result = new Dictionary<string, object>();
-
-            if (string.IsNullOrWhiteSpace(htmlContent))
-                return ErrorResult("htmlContent 不能为空");
-
-            try
-            {
-                string json = HtmlToUguiParser.Parse(htmlContent, width, height);
-                var rootNode = JsonConvert.DeserializeObject<UIDataNode>(json);
-
-                result["success"] = true;
-                result["json"] = json;
-                result["pageName"] = rootNode?.name ?? "Unknown";
-                result["resolution"] = new { width, height };
-                result["nodeCount"] = CountNodes(rootNode);
-                result["message"] = $"HTML 解析成功: {rootNode?.name ?? "Unknown"} ({CountNodes(rootNode)} 个节点)";
-            }
-            catch (Exception e)
-            {
-                return ErrorResult($"HTML 解析失败: {e.Message}");
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// 从 HTML 直接烘焙预制体（解析 + 烘焙一步到位）。
-        /// </summary>
-        /// <param name="htmlContent">符合 UI-DSL 规范的 HTML 字符串</param>
-        /// <param name="prefabPath">输出预制体路径</param>
-        /// <param name="width">基准分辨率宽</param>
-        /// <param name="height">基准分辨率高</param>
-        /// <param name="useTMP">使用 TextMeshPro</param>
-        /// <param name="sourceHtmlPath">源 HTML 路径（用于图片解析）</param>
-        public static Dictionary<string, object> BakeFromHtml(
-            string htmlContent,
-            string prefabPath,
-            int width = 942,
-            int height = 2048,
-            bool useTMP = true,
-            string sourceHtmlPath = null,
-            string templatePrefabPath = null,
-            string fontPath = null)
-        {
-            if (string.IsNullOrWhiteSpace(htmlContent))
-                return ErrorResult("htmlContent 不能为空");
-            if (string.IsNullOrWhiteSpace(prefabPath))
-                return ErrorResult("prefabPath 不能为空");
-
-            // 1. 解析 HTML → JSON
-            string json;
-            try
-            {
-                json = HtmlToUguiParser.Parse(htmlContent, width, height);
-            }
-            catch (Exception e)
-            {
-                return ErrorResult($"HTML 解析失败: {e.Message}");
-            }
-
-            // 2. 烘焙 JSON → 预制体
-            return Bake(json, prefabPath, width, height, useTMP, templatePrefabPath, sourceHtmlPath, true, fontPath);
-        }
-
-        static int CountNodes(UIDataNode node)
-        {
-            if (node == null) return 0;
-            int count = 1;
-            if (node.children != null)
-                foreach (var child in node.children)
-                    count += CountNodes(child);
-            return count;
-        }
-
-        // ──────────────────── DSL 规范获取 ────────────────────
-
-        /// <summary>
-        /// 获取 DSL 规范文本（从 DSL 目录读取）。
-        /// </summary>
-        public static Dictionary<string, object> GetDsl()
-        {
-            var result = new Dictionary<string, object>();
-
-            // 尝试找到 DSL 规范文件
-            string[] possiblePaths = {
-                "Assets/MCP/UguiBake/Docs/UI-DSL-全控件版.md",
-                "Assets/MCP/UguiBake/Docs/UI-DSL.md",
-            };
-
-            string dslContent = null;
+            string specContent = null;
             string foundPath = null;
 
-            foreach (var path in possiblePaths)
+            const string docPath = "Assets/MCP/UguiBake/Docs/AI-Workflow.md";
+            var asset = AssetDatabase.LoadAssetAtPath<TextAsset>(docPath);
+            if (asset != null)
             {
-                var asset = AssetDatabase.LoadAssetAtPath<TextAsset>(path);
-                if (asset != null)
-                {
-                    dslContent = asset.text;
-                    foundPath = path;
-                    break;
-                }
+                specContent = asset.text;
+                foundPath = docPath;
             }
-
-            // 如果精确路径找不到，用 GUID 搜索
-            if (dslContent == null)
+            else
             {
-                var guids = AssetDatabase.FindAssets("UI-DSL t:TextAsset", new[] { "Assets/MCP/UguiBake" });
+                var guids = AssetDatabase.FindAssets("AI-Workflow t:TextAsset",
+                    new[] { "Assets/MCP/UguiBake" });
                 if (guids.Length > 0)
                 {
                     foundPath = AssetDatabase.GUIDToAssetPath(guids[0]);
-                    var asset = AssetDatabase.LoadAssetAtPath<TextAsset>(foundPath);
-                    if (asset != null)
-                        dslContent = asset.text;
+                    var a = AssetDatabase.LoadAssetAtPath<TextAsset>(foundPath);
+                    if (a != null)
+                        specContent = a.text;
                 }
             }
 
-            if (dslContent == null)
-                return ErrorResult("未找到 DSL 规范文件");
+            if (specContent == null)
+                return ErrorResult("未找到 HTML 规范文件");
 
             // 查找可用画风
             var styles = new List<string>();
@@ -711,57 +427,12 @@ namespace MCPForUnity.Editor.UguiBake
             }
 
             result["success"] = true;
-            result["dsl"] = dslContent;
-            result["dslPath"] = foundPath;
+            result["spec"] = specContent;
+            result["specPath"] = foundPath;
             result["availableStyles"] = styles;
             result["baseResolution"] = new { width = 942, height = 2048 };
 
-            // 附带缩进 DSL 语法参考（从 AI 工作流文档提取，AI 可直接据此编写轻量 DSL）
-            string dslSyntax = ExtractDslSyntax();
-            if (dslSyntax != null)
-                result["dslSyntax"] = dslSyntax;
-
             return result;
-        }
-
-        /// <summary>
-        /// 从 AI 工作流文档中提取「缩进 DSL 语法参考」章节（## 三、 到 ## 四、 之间）。
-        /// </summary>
-        static string ExtractDslSyntax()
-        {
-            string content = null;
-            const string docPath = "Assets/MCP/UguiBake/Docs/AI-Workflow.md";
-
-            var asset = AssetDatabase.LoadAssetAtPath<TextAsset>(docPath);
-            if (asset != null)
-            {
-                content = asset.text;
-            }
-            else
-            {
-                var guids = AssetDatabase.FindAssets("AI-Workflow t:TextAsset",
-                    new[] { "Assets/MCP/UguiBake" });
-                if (guids.Length > 0)
-                {
-                    var a = AssetDatabase.LoadAssetAtPath<TextAsset>(AssetDatabase.GUIDToAssetPath(guids[0]));
-                    if (a != null)
-                        content = a.text;
-                }
-            }
-
-            if (string.IsNullOrEmpty(content))
-                return null;
-
-            const string startMarker = "## 四、";
-            const string endMarker = "## 五、";
-            int start = content.IndexOf(startMarker, StringComparison.Ordinal);
-            if (start < 0)
-                return null;
-            int end = content.IndexOf(endMarker, StringComparison.Ordinal);
-            if (end <= start)
-                end = content.Length;
-
-            return content.Substring(start, end - start).Trim();
         }
 
         // ──────────────────── 自动绑定脚本生成 ────────────────────
@@ -784,27 +455,22 @@ namespace MCPForUnity.Editor.UguiBake
             if (prefab == null)
                 return ErrorResult($"预制体未找到: {prefabPath}");
 
-            // 收集需要绑定的节点
             var bindings = new List<BindingInfo>();
             CollectBindings(prefab.transform, "", bindings);
 
-            // 生成类名
             string className = prefab.name;
             if (className.EndsWith("Page"))
                 className = className.Substring(0, className.Length - 4);
             className += "View";
 
-            // 生成脚本路径
             if (string.IsNullOrEmpty(scriptPath))
             {
                 string dir = Path.GetDirectoryName(prefabPath)?.Replace("\\", "/");
                 scriptPath = $"{dir}/{className}.cs";
             }
 
-            // 生成脚本内容
             string scriptContent = GenerateScriptContent(className, namespaceName, bindings);
 
-            // 写入文件
             EnsureAssetFolderForPath(scriptPath);
             File.WriteAllText(scriptPath, scriptContent);
             AssetDatabase.ImportAsset(scriptPath);
@@ -851,7 +517,6 @@ namespace MCPForUnity.Editor.UguiBake
                 }
             }
 
-            // 如果未指定 fontPath 或加载失败，从配置加载默认字体
             if ((useTMP && tmpFont == null) || (!useTMP && legacyFont == null))
             {
                 var config = FindBakeConfig();
@@ -888,20 +553,63 @@ namespace MCPForUnity.Editor.UguiBake
             };
         }
 
+        static void SaveBakeSourceFiles(
+            string prefabPath,
+            string convertedHtmlContent,
+            string userInputContent,
+            string userInputExtension,
+            string userInputSourcePath,
+            out string convertedHtmlPath,
+            out string userInputPath)
+        {
+            convertedHtmlPath = null;
+            userInputPath = null;
+
+            string prefabDir = Path.GetDirectoryName(prefabPath)?.Replace("\\", "/");
+            if (string.IsNullOrEmpty(prefabDir))
+                return;
+
+            EnsureAssetFolder(prefabDir);
+
+            string baseName = SanitizeFileName(Path.GetFileNameWithoutExtension(prefabPath));
+            convertedHtmlPath = $"{prefabDir}/{baseName}.ugui.html";
+            File.WriteAllText(convertedHtmlPath, convertedHtmlContent ?? string.Empty, Encoding.UTF8);
+            AssetDatabase.ImportAsset(convertedHtmlPath);
+
+            if (!string.IsNullOrEmpty(userInputContent))
+            {
+                string ext = SanitizeExtension(userInputExtension);
+                userInputPath = $"{prefabDir}/{baseName}.input.{ext}";
+                File.WriteAllText(userInputPath, userInputContent, Encoding.UTF8);
+                AssetDatabase.ImportAsset(userInputPath);
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(userInputSourcePath))
+            {
+                string normalizedSource = userInputSourcePath.Replace("\\", "/").Trim();
+                if (File.Exists(normalizedSource))
+                {
+                    string ext = SanitizeExtension(Path.GetExtension(normalizedSource));
+                    userInputPath = $"{prefabDir}/{baseName}.input.{ext}";
+                    File.Copy(normalizedSource, userInputPath, true);
+                    AssetDatabase.ImportAsset(userInputPath);
+                }
+            }
+        }
+
         static string SaveJsonSnapshot(string jsonContent, string pageName)
         {
             EnsureAssetFolder(DefaultJsonDir);
             string safeName = SanitizeFileName(pageName);
             string path = $"{DefaultJsonDir}/{safeName}.ugui.json";
 
-            // 如果已存在，添加时间戳
             if (File.Exists(path))
             {
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                 path = $"{DefaultJsonDir}/{safeName}_{timestamp}.ugui.json";
             }
 
-            // 格式化 JSON
             try
             {
                 var parsed = JToken.Parse(jsonContent);
@@ -914,6 +622,60 @@ namespace MCPForUnity.Editor.UguiBake
 
             AssetDatabase.ImportAsset(path);
             return path;
+        }
+
+        /// <summary>查找指定页面名的最新 JSON 快照路径（无则返回 null）。</summary>
+        static string FindLatestJsonSnapshot(string pageName)
+        {
+            if (string.IsNullOrEmpty(pageName)) return null;
+            string safeName = SanitizeFileName(pageName);
+            string exactPath = $"{DefaultJsonDir}/{safeName}.ugui.json";
+            if (File.Exists(exactPath))
+                return exactPath;
+
+            // 查找带时间戳的快照（name_YYYYMMDD_HHMMSS.ugui.json）
+            if (!AssetDatabase.IsValidFolder(DefaultJsonDir))
+                return null;
+
+            string prefix = $"{safeName}_";
+            var guids = AssetDatabase.FindAssets("t:TextAsset", new[] { DefaultJsonDir });
+            string latestPath = null;
+            DateTime latestTime = DateTime.MinValue;
+
+            foreach (var guid in guids)
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                string fileName = Path.GetFileNameWithoutExtension(path);
+                if (fileName != null && fileName.StartsWith(prefix, StringComparison.Ordinal) && fileName.EndsWith(".ugui", StringComparison.Ordinal))
+                {
+                    var info = new FileInfo(path);
+                    if (info.LastWriteTime > latestTime)
+                    {
+                        latestTime = info.LastWriteTime;
+                        latestPath = path;
+                    }
+                }
+            }
+            return latestPath;
+        }
+
+        /// <summary>语义级比较两段 JSON 是否等价（忽略格式差异）。</summary>
+        static bool IsJsonEquivalent(string jsonA, string jsonB)
+        {
+            if (string.IsNullOrEmpty(jsonA) || string.IsNullOrEmpty(jsonB))
+                return jsonA == jsonB;
+
+            try
+            {
+                var tokenA = JToken.Parse(jsonA);
+                var tokenB = JToken.Parse(jsonB);
+                return JToken.DeepEquals(tokenA, tokenB);
+            }
+            catch
+            {
+                // 解析失败时退回字符串比较
+                return string.Equals(jsonA?.Trim(), jsonB?.Trim(), StringComparison.Ordinal);
+            }
         }
 
         static string BackupPrefab(string prefabPath)
@@ -957,6 +719,18 @@ namespace MCPForUnity.Editor.UguiBake
                 EnsureAssetFolder(dir);
         }
 
+        static string SanitizeExtension(string extension)
+        {
+            if (string.IsNullOrWhiteSpace(extension)) return "txt";
+            extension = extension.Trim().TrimStart('.');
+            if (string.IsNullOrWhiteSpace(extension)) return "txt";
+
+            foreach (char c in Path.GetInvalidFileNameChars())
+                extension = extension.Replace(c, '_');
+            extension = extension.Replace('/', '_').Replace('\\', '_');
+            return string.IsNullOrWhiteSpace(extension) ? "txt" : extension;
+        }
+
         static string SanitizeFileName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "Unknown";
@@ -965,55 +739,14 @@ namespace MCPForUnity.Editor.UguiBake
             return name;
         }
 
-        static string ExtractPageName(string jsonContent)
+        static int CountNodes(UIDataNode node)
         {
-            try
-            {
-                var node = JsonConvert.DeserializeObject<UIDataNode>(jsonContent);
-                if (node != null && !string.IsNullOrEmpty(node.name))
-                    return node.name;
-            }
-            catch { }
-            return "UnknownPage";
-        }
-
-        static Transform FindNodeByPath(Transform root, string path)
-        {
-            if (string.IsNullOrEmpty(path))
-                return root;
-
-            string[] parts = path.Split('/');
-            Transform current = root;
-
-            foreach (var part in parts)
-            {
-                if (string.IsNullOrEmpty(part)) continue;
-                var child = current.Find(part);
-                if (child == null)
-                {
-                    // 尝试递归查找
-                    child = FindDeep(current, part);
-                }
-                if (child == null)
-                    return null;
-                current = child;
-            }
-
-            return current;
-        }
-
-        static Transform FindDeep(Transform parent, string name)
-        {
-            for (int i = 0; i < parent.childCount; i++)
-            {
-                var child = parent.GetChild(i);
-                if (child.name == name)
-                    return child;
-                var found = FindDeep(child, name);
-                if (found != null)
-                    return found;
-            }
-            return null;
+            if (node == null) return 0;
+            int count = 1;
+            if (node.children != null)
+                foreach (var child in node.children)
+                    count += CountNodes(child);
+            return count;
         }
 
         static int CountAllChildren(Transform t)
@@ -1040,7 +773,6 @@ namespace MCPForUnity.Editor.UguiBake
                 var child = node.GetChild(i);
                 string childPath = string.IsNullOrEmpty(currentPath) ? child.name : $"{currentPath}/{child.name}";
 
-                // 根据命名规范判断是否需要绑定
                 string name = child.name;
                 string componentType = null;
                 string fieldName = null;
@@ -1096,7 +828,6 @@ namespace MCPForUnity.Editor.UguiBake
                     });
                 }
 
-                // 递归子节点
                 CollectBindings(child, childPath, bindings);
             }
         }
@@ -1105,7 +836,6 @@ namespace MCPForUnity.Editor.UguiBake
         {
             if (string.IsNullOrEmpty(pascalCase))
                 return "field";
-            // PascalCase → camelCase
             return char.ToLowerInvariant(pascalCase[0]) + pascalCase.Substring(1);
         }
 
@@ -1124,7 +854,6 @@ namespace MCPForUnity.Editor.UguiBake
             sb.AppendLine($"    public class {className} : MonoBehaviour");
             sb.AppendLine("    {");
 
-            // 字段
             foreach (var b in bindings)
             {
                 sb.AppendLine($"        [SerializeField] private {b.componentType} {b.fieldName};");
@@ -1133,14 +862,13 @@ namespace MCPForUnity.Editor.UguiBake
             if (bindings.Count > 0)
                 sb.AppendLine();
 
-            // 初始化方法
             sb.AppendLine("        /// <summary>按节点路径自动绑定。在 Awake 或 OnEnable 中调用。</summary>");
             sb.AppendLine("        public void AutoBind()");
             sb.AppendLine("        {");
 
             if (bindings.Count == 0)
             {
-                sb.AppendLine("            // 此预制体无符合 DSL 命名规范的控件节点");
+                sb.AppendLine("            // 此预制体无符合命名规范的控件节点");
             }
             else
             {

@@ -204,6 +204,9 @@ namespace MCPForUnity.Editor.UguiBake
 
             Transform childrenContainer = ApplyComponentByType(go, nodeData, useTMPText);
 
+            // ContentSizeFitter 支持：根据 autoSize 字段挂载自适应组件
+            ApplyContentSizeFitter(go, nodeData);
+
             if (nodeData.children != null && nodeData.children.Count > 0)
             {
                 float childRefPx = nodeData.x;
@@ -414,9 +417,8 @@ namespace MCPForUnity.Editor.UguiBake
                         GameObject phGo = UguiPrefabBakerUtils.CreateChildRect(textAreaGo, "Placeholder", Vector2.zero, Vector2.one);
                         TextMeshProUGUI phTxt = phGo.AddComponent<TextMeshProUGUI>();
                         phTxt.text = nodeData.text;
-                        Color phColor = fontColor;
-                        phColor.a = 0.5f;
-                        phTxt.color = phColor;
+                        // 使用固定浅灰色确保对比度（WCAG AA 标准 4.5:1）
+                        phTxt.color = new Color(0.627f, 0.627f, 0.627f, 1f); // #a0a0a0
                         phTxt.fontSize = fontSize;
                         phTxt.alignment = alignment;
                         phTxt.enableWordWrapping = false;
@@ -447,9 +449,8 @@ namespace MCPForUnity.Editor.UguiBake
                         GameObject phGo = UguiPrefabBakerUtils.CreateChildRect(textAreaGo, "Placeholder", Vector2.zero, Vector2.one);
                         Text phTxt = phGo.AddComponent<Text>();
                         phTxt.text = nodeData.text;
-                        Color phColor = fontColor;
-                        phColor.a = 0.5f;
-                        phTxt.color = phColor;
+                        // 使用固定浅灰色确保对比度（WCAG AA 标准 4.5:1）
+                        phTxt.color = new Color(0.627f, 0.627f, 0.627f, 1f); // #a0a0a0
                         phTxt.fontSize = fontSize;
                         phTxt.alignment = unityAlignment;
                         phTxt.supportRichText = true;
@@ -496,17 +497,23 @@ namespace MCPForUnity.Editor.UguiBake
                     Toggle toggle = go.AddComponent<Toggle>();
                     toggle.isOn = nodeData.isChecked;
 
-                    float boxSize = Mathf.Min(nodeData.height, 30f);
+                    float boxSize = Mathf.Max(20f, Mathf.Min(nodeData.height, 30f));
                     GameObject tBgGo = UguiPrefabBakerUtils.CreateChildRect(go, "Background", new Vector2(0, 0.5f), new Vector2(0, 0.5f));
                     RectTransform tBgRect = tBgGo.GetComponent<RectTransform>();
                     tBgRect.sizeDelta = new Vector2(boxSize, boxSize);
                     tBgRect.anchoredPosition = new Vector2(boxSize / 2, 0);
                     Image tBgImg = tBgGo.AddComponent<Image>();
-                    tBgImg.color = Color.white;
+                    UguiPrefabBakerUtils.EnsureUiImageHasWhiteSprite(tBgImg);
+                    tBgImg.color = new Color(1f, 1f, 1f, 0.05f);
+
+                    // 添加边框使 Toggle 在任何背景上可见
+                    var toggleOutline = tBgGo.AddComponent<UguiImageOutline>();
+                    toggleOutline.ApplyBakedStroke(2f, new Color(0.63f, 0.63f, 0.63f, 1f));
 
                     GameObject checkGo = UguiPrefabBakerUtils.CreateChildRect(tBgGo, "Checkmark", Vector2.zero, Vector2.one);
                     Image checkImg = checkGo.AddComponent<Image>();
-                    checkImg.color = Color.black;
+                    UguiPrefabBakerUtils.EnsureUiImageHasWhiteSprite(checkImg);
+                    checkImg.color = new Color(0.15f, 0.15f, 0.15f, 1f);
                     RectTransform checkRect = checkGo.GetComponent<RectTransform>();
                     checkRect.offsetMin = new Vector2(4, 4);
                     checkRect.offsetMax = new Vector2(-4, -4);
@@ -550,6 +557,7 @@ namespace MCPForUnity.Editor.UguiBake
                     GameObject fillAreaGo = UguiPrefabBakerUtils.CreateChildRect(go, "Fill Area", Vector2.zero, Vector2.one, new Vector2(5, 0), new Vector2(-15, 0));
                     GameObject fillGo = UguiPrefabBakerUtils.CreateChildRect(fillAreaGo, "Fill", Vector2.zero, Vector2.one);
                     Image fillImg = fillGo.AddComponent<Image>();
+                    UguiPrefabBakerUtils.EnsureUiImageHasWhiteSprite(fillImg);
                     fillImg.color = fontColor;
 
                     GameObject handleAreaGo = UguiPrefabBakerUtils.CreateChildRect(go, "Handle Slide Area", Vector2.zero, Vector2.one, new Vector2(10, 0), new Vector2(-10, 0));
@@ -557,7 +565,11 @@ namespace MCPForUnity.Editor.UguiBake
                     RectTransform handleRect = handleGo.GetComponent<RectTransform>();
                     handleRect.sizeDelta = new Vector2(20, 0);
                     Image handleImg = handleGo.AddComponent<Image>();
+                    handleImg.sprite = UguiPrefabBakerUtils.GetBakeCircleSprite();
                     handleImg.color = Color.white;
+                    // 添加边框提升 Handle 在浅色轨道上的可见性
+                    var handleOutline = handleGo.AddComponent<UguiImageOutline>();
+                    handleOutline.ApplyBakedStroke(2f, new Color(0.3f, 0.3f, 0.3f, 0.8f));
 
                     slider.targetGraphic = handleImg;
                     slider.fillRect = fillGo.GetComponent<RectTransform>();
@@ -585,6 +597,7 @@ namespace MCPForUnity.Editor.UguiBake
                         arrowRect.sizeDelta = new Vector2(20, 20);
                         arrowRect.anchoredPosition = new Vector2(-15, 0);
                         Image arrowImg = arrowGo.AddComponent<Image>();
+                        arrowImg.sprite = UguiPrefabBakerUtils.GetBakeArrowSprite();
                         arrowImg.color = fontColor;
 
                         GameObject templateGo = UguiPrefabBakerUtils.CreateChildRect(go, "Template", new Vector2(0, 0), new Vector2(1, 0));
@@ -669,6 +682,7 @@ namespace MCPForUnity.Editor.UguiBake
                         arrowRect.sizeDelta = new Vector2(20, 20);
                         arrowRect.anchoredPosition = new Vector2(-15, 0);
                         Image arrowImg = arrowGo.AddComponent<Image>();
+                        arrowImg.sprite = UguiPrefabBakerUtils.GetBakeArrowSprite();
                         arrowImg.color = fontColor;
 
                         GameObject templateGo = UguiPrefabBakerUtils.CreateChildRect(go, "Template", new Vector2(0, 0), new Vector2(1, 0));
@@ -744,7 +758,38 @@ namespace MCPForUnity.Editor.UguiBake
             }
         }
 
-        public static void ConfigureCanvasScaler(Canvas canvas, Vector2? targetRes = null)
+        /// <summary>
+        /// 根据 UIDataNode.autoSize 字段挂载 ContentSizeFitter，实现运行时自适应内容尺寸。
+        /// 支持 horizontal / vertical / both 三种模式。
+        /// </summary>
+        static void ApplyContentSizeFitter(GameObject go, UIDataNode nodeData)
+        {
+            if (string.IsNullOrEmpty(nodeData.autoSize) || nodeData.autoSize == "none")
+                return;
+
+            var fitter = go.GetComponent<ContentSizeFitter>();
+            if (fitter == null)
+                fitter = go.AddComponent<ContentSizeFitter>();
+
+            string mode = nodeData.autoSize.ToLowerInvariant();
+            switch (mode)
+            {
+                case "horizontal":
+                    fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+                    fitter.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
+                    break;
+                case "vertical":
+                    fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+                    fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+                    break;
+                case "both":
+                    fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+                    fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+                    break;
+            }
+        }
+
+        public static void ConfigureCanvasScaler(Canvas canvas, Vector2? targetRes = null, float matchWidthOrHeight = 0.5f)
         {
             CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
             if (scaler == null) scaler = canvas.gameObject.AddComponent<CanvasScaler>();
@@ -754,11 +799,32 @@ namespace MCPForUnity.Editor.UguiBake
             // 默认使用1920×1080，如果提供了targetRes则使用提供的值
             Vector2 resolution = targetRes ?? new Vector2(1920, 1080);
             scaler.referenceResolution = resolution;
-            scaler.matchWidthOrHeight = 0.5f;
+            scaler.matchWidthOrHeight = Mathf.Clamp01(matchWidthOrHeight);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        }
+
+        /// <summary>在根节点上挂载 SafeAreaHelper 组件（如果 safeArea 为 true）。</summary>
+        static void ApplySafeAreaIfNeeded(GameObject go, UIDataNode nodeData)
+        {
+            if (!nodeData.safeArea) return;
+
+            var helper = go.GetComponent<MCPForUnity.Runtime.UguiBake.SafeAreaHelper>();
+            if (helper == null)
+                helper = go.AddComponent<MCPForUnity.Runtime.UguiBake.SafeAreaHelper>();
+            // 默认同时适配水平和垂直方向
+            helper.adaptHorizontal = true;
+            helper.adaptVertical = true;
         }
 
         public static void BakeJsonRootUnderTemplateWithoutShell(UIDataNode rootNode, Transform templateRoot, Vector2 refSize, bool useTMPText = true)
         {
+            BakeJsonRootUnderTemplateWithoutShellWithReturn(rootNode, templateRoot, refSize, useTMPText);
+        }
+
+        /// <summary>与 BakeJsonRootUnderTemplateWithoutShell 相同，但返回创建的根 UI GameObject 列表。</summary>
+        public static List<GameObject> BakeJsonRootUnderTemplateWithoutShellWithReturn(UIDataNode rootNode, Transform templateRoot, Vector2 refSize, bool useTMPText = true)
+        {
+            var roots = new List<GameObject>();
             if (rootNode.children != null && rootNode.children.Count > 0)
             {
                 float px = rootNode.x;
@@ -766,12 +832,13 @@ namespace MCPForUnity.Editor.UguiBake
                 float pw = rootNode.width;
                 float ph = rootNode.height;
                 foreach (var child in rootNode.children)
-                    CreateUINode(child, templateRoot, px, py, pw, ph, useTMPText);
+                    roots.Add(CreateUINode(child, templateRoot, px, py, pw, ph, useTMPText));
             }
             else
             {
-                CreateUINode(rootNode, templateRoot, 0f, 0f, refSize.x, refSize.y, useTMPText);
+                roots.Add(CreateUINode(rootNode, templateRoot, 0f, 0f, refSize.x, refSize.y, useTMPText));
             }
+            return roots;
         }
 
         public static bool TryBakeJsonStringToPrefab(string jsonContent, string prefabAssetPath, Vector2 refSize, GameObject templatePagePrefab, string sourceHtmlAssetPath, out string error, bool useTMPText = true, bool applyCanvasScaler = true, TMP_FontAsset tmpFont = null, Font legacyFont = null)
@@ -828,9 +895,15 @@ namespace MCPForUnity.Editor.UguiBake
                     }
 
                     if (applyCanvasScaler)
-                        ConfigureCanvasScaler(canvas, refSize);
+                        ConfigureCanvasScaler(canvas, refSize, rootNode.scalerMatch);
 
-                    BakeJsonRootUnderTemplateWithoutShell(rootNode, contents.transform, refSize, useTMPText);
+                    var bakedRoots = BakeJsonRootUnderTemplateWithoutShellWithReturn(rootNode, contents.transform, refSize, useTMPText);
+                    // 对根 UI 节点应用 SafeArea
+                    if (bakedRoots != null)
+                    {
+                        foreach (var br in bakedRoots)
+                            ApplySafeAreaIfNeeded(br, rootNode);
+                    }
                     PrefabUtility.SaveAsPrefabAsset(contents, prefabAssetPath);
                 }
                 finally
@@ -852,9 +925,10 @@ namespace MCPForUnity.Editor.UguiBake
                 canvasGo.AddComponent<GraphicRaycaster>();
 
                 if (applyCanvasScaler)
-                    ConfigureCanvasScaler(canvas, refSize);
+                    ConfigureCanvasScaler(canvas, refSize, rootNode.scalerMatch);
 
                 var rootGo = CreateUINode(rootNode, canvas.transform, 0f, 0f, refSize.x, refSize.y, useTMPText);
+                ApplySafeAreaIfNeeded(rootGo, rootNode);
                 PrefabUtility.SaveAsPrefabAsset(rootGo, prefabAssetPath);
             }
             finally

@@ -241,6 +241,153 @@ namespace MCPForUnity.Editor.UguiBake
             img.sprite = _bakeWhiteSprite;
         }
 
+        /// <summary>
+        /// 烘焙用向下箭头 Sprite（Dropdown 箭头），程序化生成的三角形。
+        /// </summary>
+        static Sprite _bakeArrowSprite;
+
+        public static Sprite GetBakeArrowSprite()
+        {
+            if (_bakeArrowSprite != null) return _bakeArrowSprite;
+
+            int size = 32;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.clear;
+
+            // 向下三角形：顶部宽、底部尖
+            for (int y = 0; y < size; y++)
+            {
+                float t = (float)y / (size - 1); // 0=底(尖), 1=顶(宽)
+                int halfWidth = Mathf.RoundToInt(t * (size / 2f - 1));
+                int cx = size / 2;
+                for (int x = cx - halfWidth; x <= cx + halfWidth; x++)
+                {
+                    if (x >= 0 && x < size)
+                        pixels[y * size + x] = Color.white;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            _bakeArrowSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            _bakeArrowSprite.name = "[UguiBake] BakeArrow";
+            return _bakeArrowSprite;
+        }
+
+        /// <summary>烘焙用圆形 Sprite（Slider 手柄、Toggle 勾选标记等），程序化生成并缓存。</summary>
+        static Sprite _bakeCircleSprite;
+
+        public static Sprite GetBakeCircleSprite()
+        {
+            if (_bakeCircleSprite != null) return _bakeCircleSprite;
+
+            int size = 64;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+
+            float center = size / 2f;
+            float radius = size / 2f - 1f;
+            float radiusSq = radius * radius;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x + 0.5f - center;
+                    float dy = y + 0.5f - center;
+                    float distSq = dx * dx + dy * dy;
+
+                    if (distSq <= radiusSq)
+                    {
+                        // 边缘抗锯齿：距离越近越透明
+                        float dist = Mathf.Sqrt(distSq);
+                        float alpha = dist > radius - 1f ? Mathf.Clamp01(radius - dist) : 1f;
+                        pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+                    }
+                    else
+                    {
+                        pixels[y * size + x] = Color.clear;
+                    }
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            _bakeCircleSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            _bakeCircleSprite.name = "[UguiBake] BakeCircle";
+            return _bakeCircleSprite;
+        }
+
+        /// <summary>烘焙用圆角矩形 Sprite（备用，当前圆角由 UguiRoundedCorners 组件实现）。</summary>
+        static Sprite _bakeRoundedRectSprite;
+
+        public static Sprite GetBakeRoundedRectSprite(float radius = 8f)
+        {
+            if (_bakeRoundedRectSprite != null) return _bakeRoundedRectSprite;
+
+            int size = 64;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+
+            float r = Mathf.Min(radius, size / 4f);
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    bool inside = true;
+
+                    // 四角检测
+                    float cx = x, cy = y;
+                    // 左上
+                    if (x < r && y < r)
+                    {
+                        float dx = r - x, dy = r - y;
+                        inside = dx * dx + dy * dy <= r * r;
+                    }
+                    // 右上
+                    else if (x >= size - r && y < r)
+                    {
+                        float dx = x - (size - r - 1), dy = r - y;
+                        inside = dx * dx + dy * dy <= r * r;
+                    }
+                    // 左下
+                    else if (x < r && y >= size - r)
+                    {
+                        float dx = r - x, dy = y - (size - r - 1);
+                        inside = dx * dx + dy * dy <= r * r;
+                    }
+                    // 右下
+                    else if (x >= size - r && y >= size - r)
+                    {
+                        float dx = x - (size - r - 1), dy = y - (size - r - 1);
+                        inside = dx * dx + dy * dy <= r * r;
+                    }
+
+                    pixels[y * size + x] = inside ? Color.white : Color.clear;
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            _bakeRoundedRectSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect);
+            _bakeRoundedRectSprite.name = "[UguiBake] BakeRoundedRect";
+            return _bakeRoundedRectSprite;
+        }
+
+        /// <summary>清理所有缓存的 Sprite（编辑器重新编译或域重载时调用）。</summary>
+        public static void ClearSpriteCache()
+        {
+            _bakeWhiteSprite = null;
+            _bakeArrowSprite = null;
+            _bakeCircleSprite = null;
+            _bakeRoundedRectSprite = null;
+        }
+
         public static Color ParseHexColor(string hex, Color defaultColor)
         {
             if (string.IsNullOrEmpty(hex)) return defaultColor;
