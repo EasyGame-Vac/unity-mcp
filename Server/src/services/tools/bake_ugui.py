@@ -41,7 +41,8 @@ from transport.legacy.unity_connection import async_send_command_with_retry
         "get_spec (retrieve UI-DSL HTML spec for AI reference), "
         "generate_view_script (auto-generate C# View script with field bindings). "
         "Supports use_tmp (TMP vs legacy Text), font_path (custom font asset), "
-        "and template_prefab (parent template with Canvas). "
+        "template_prefab (parent template with Canvas), and attach_script "
+        "(attach a MonoBehaviour to the baked prefab root). "
         "The UguiBake pipeline is built into the MCPForUnity package."
     ),
     group="core",
@@ -140,6 +141,14 @@ async def bake_ugui(
         str,
         "C# namespace for the generated View script. Default 'Game.UI'.",
     ] = "Game.UI",
+    attach_script: Annotated[
+        str | None,
+        "MonoBehaviour type name to attach to the baked prefab root (for bake_from_html). "
+        "Accepts short name (e.g. 'SkillEditorPanel') or fully-qualified name "
+        "(e.g. 'Game.Battle2D.SkillEditorPanel'). The type must already be compiled "
+        "in the project. When provided, the script component is added to the prefab "
+        "root after baking.",
+    ] = None,
 ) -> dict[str, Any]:
     unity_instance = await get_unity_instance_from_context(ctx)
 
@@ -169,6 +178,8 @@ async def bake_ugui(
             params_dict["user_input_extension"] = user_input_extension
         if user_input_source_path is not None:
             params_dict["user_input_source_path"] = user_input_source_path
+        if attach_script is not None:
+            params_dict["attach_script"] = attach_script
 
     elif action == "list":
         if output_dir is not None:

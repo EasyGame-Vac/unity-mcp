@@ -30,6 +30,7 @@ namespace MCPForUnity.Editor.Windows
         private McpToolsSection toolsSection;
         private McpResourcesSection resourcesSection;
         private McpAssetGenSection assetGenSection;
+        private McpConsoleSection consoleSection;
 
         // UI Elements
         private Label versionLabel;
@@ -42,12 +43,14 @@ namespace MCPForUnity.Editor.Windows
         private ToolbarToggle toolsTabToggle;
         private ToolbarToggle resourcesTabToggle;
         private ToolbarToggle assetGenTabToggle;
+        private ToolbarToggle consoleTabToggle;
         private VisualElement clientsPanel;
         private VisualElement depsPanel;
         private VisualElement advancedPanel;
         private VisualElement toolsPanel;
         private VisualElement resourcesPanel;
         private VisualElement assetGenPanel;
+        private VisualElement consolePanel;
 
         private static readonly HashSet<MCPForUnityEditorWindow> OpenWindows = new();
         private bool guiCreated = false;
@@ -65,6 +68,7 @@ namespace MCPForUnity.Editor.Windows
             Advanced,
             Tools,
             Resources,
+            Console,
             AssetGen
         }
 
@@ -206,12 +210,14 @@ namespace MCPForUnity.Editor.Windows
             toolsPanel = rootVisualElement.Q<VisualElement>("tools-panel");
             resourcesPanel = rootVisualElement.Q<VisualElement>("resources-panel");
             assetGenPanel = rootVisualElement.Q<VisualElement>("assetgen-panel");
+            consolePanel = rootVisualElement.Q<VisualElement>("console-panel");
             var clientsContainer = rootVisualElement.Q<VisualElement>("clients-container");
             var depsContainer = rootVisualElement.Q<VisualElement>("deps-container");
             var advancedContainer = rootVisualElement.Q<VisualElement>("advanced-container");
             var toolsContainer = rootVisualElement.Q<VisualElement>("tools-container");
             var resourcesContainer = rootVisualElement.Q<VisualElement>("resources-container");
             var assetGenContainer = rootVisualElement.Q<VisualElement>("assetgen-container");
+            var consoleContainer = rootVisualElement.Q<VisualElement>("console-container");
 
             if (clientsPanel == null || depsPanel == null || advancedPanel == null || toolsPanel == null || resourcesPanel == null || assetGenPanel == null)
             {
@@ -396,6 +402,12 @@ namespace MCPForUnity.Editor.Windows
             else
             {
                 McpLog.Warn("Failed to load asset generation section UXML. Asset generation configuration will be unavailable.");
+            }
+
+            // Initialize Console section (programmatic UI, no UXML needed)
+            if (consoleContainer != null)
+            {
+                consoleSection = new McpConsoleSection(consoleContainer);
             }
 
             // Apply .section-last class to last section in each stack
@@ -644,6 +656,7 @@ namespace MCPForUnity.Editor.Windows
             toolsTabToggle = rootVisualElement.Q<ToolbarToggle>("tools-tab");
             resourcesTabToggle = rootVisualElement.Q<ToolbarToggle>("resources-tab");
             assetGenTabToggle = rootVisualElement.Q<ToolbarToggle>("assetgen-tab");
+            consoleTabToggle = rootVisualElement.Q<ToolbarToggle>("console-tab");
 
             clientsPanel?.RemoveFromClassList("hidden");
             depsPanel?.RemoveFromClassList("hidden");
@@ -651,6 +664,7 @@ namespace MCPForUnity.Editor.Windows
             toolsPanel?.RemoveFromClassList("hidden");
             resourcesPanel?.RemoveFromClassList("hidden");
             assetGenPanel?.RemoveFromClassList("hidden");
+            consolePanel?.RemoveFromClassList("hidden");
 
             if (clientsTabToggle != null)
             {
@@ -700,6 +714,14 @@ namespace MCPForUnity.Editor.Windows
                 });
             }
 
+            if (consoleTabToggle != null)
+            {
+                consoleTabToggle.RegisterValueChangedCallback(evt =>
+                {
+                    if (evt.newValue) SwitchPanel(ActivePanel.Console);
+                });
+            }
+
             var savedPanel = EditorPrefs.GetString(EditorPrefKeys.EditorWindowActivePanel, ActivePanel.Clients.ToString());
             // Migrate old "Validation" saved value to "Deps"
             if (savedPanel == "Validation") savedPanel = "Deps";
@@ -744,6 +766,11 @@ namespace MCPForUnity.Editor.Windows
                 assetGenPanel.style.display = DisplayStyle.None;
             }
 
+            if (consolePanel != null)
+            {
+                consolePanel.style.display = DisplayStyle.None;
+            }
+
             // Show selected panel
             switch (panel)
             {
@@ -770,6 +797,9 @@ namespace MCPForUnity.Editor.Windows
                     if (assetGenPanel != null) assetGenPanel.style.display = DisplayStyle.Flex;
                     assetGenSection?.Refresh();
                     break;
+                case ActivePanel.Console:
+                    if (consolePanel != null) consolePanel.style.display = DisplayStyle.Flex;
+                    break;
             }
 
             // Update toggle states
@@ -779,6 +809,7 @@ namespace MCPForUnity.Editor.Windows
             toolsTabToggle?.SetValueWithoutNotify(panel == ActivePanel.Tools);
             resourcesTabToggle?.SetValueWithoutNotify(panel == ActivePanel.Resources);
             assetGenTabToggle?.SetValueWithoutNotify(panel == ActivePanel.AssetGen);
+            consoleTabToggle?.SetValueWithoutNotify(panel == ActivePanel.Console);
 
             EditorPrefs.SetString(EditorPrefKeys.EditorWindowActivePanel, panel.ToString());
         }

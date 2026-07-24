@@ -59,7 +59,8 @@ namespace MCPForUnity.Editor.UguiBake
             bool skipIfUnchanged = true,
             string userInputContent = null,
             string userInputExtension = "txt",
-            string userInputSourcePath = null)
+            string userInputSourcePath = null,
+            string attachScript = null)
         {
             var result = new Dictionary<string, object>();
             var report = BakeReport.Begin(prefabPath, "html");
@@ -315,6 +316,76 @@ namespace MCPForUnity.Editor.UguiBake
             {
                 result["message"] = $"成功烘焙 '{pageName}' → {prefabPath}";
                 AssetDatabase.Refresh();
+
+                // 烘焙后挂载脚本
+                if (!string.IsNullOrWhiteSpace(attachScript))
+                {
+                    var attachResult = AttachScriptToPrefab(prefabPath, attachScript);
+                    result["attachScript"] = attachResult;
+                }
+            }
+
+            return result;
+        }
+
+        // ──────────────────── 挂载脚本 ────────────────────
+
+        /// <summary>
+        /// 将指定 MonoBehaviour 脚本挂载到预制体根节点。
+        /// 类型必须已编译（项目程序集中存在）。
+        /// </summary>
+        /// <param name="prefabPath">预制体 Assets 相对路径</param>
+        /// <param name="typeName">类型短名或全限定名（如 "SkillEditorPanel" 或 "Game.Battle2D.SkillEditorPanel"）</param>
+        /// <returns>操作结果字典</returns>
+        public static Dictionary<string, object> AttachScriptToPrefab(string prefabPath, string typeName)
+        {
+            var result = new Dictionary<string, object>();
+
+            // 解析类型
+            if (!MCPForUnity.Editor.Helpers.UnityTypeResolver.TryResolve(
+                    typeName, out Type scriptType, out string resolveError, typeof(Component)))
+            {
+                result["success"] = false;
+                result["message"] = $"无法解析脚本类型 '{typeName}': {resolveError}";
+                return result;
+            }
+
+            // 打开预制体进行编辑
+            GameObject contents = PrefabUtility.LoadPrefabContents(prefabPath);
+            if (contents == null)
+            {
+                result["success"] = false;
+                result["message"] = $"无法加载预制体: {prefabPath}";
+                return result;
+            }
+
+            try
+            {
+                // 检查是否已挂载
+                var existing = contents.GetComponent(scriptType);
+                if (existing != null)
+                {
+                    result["success"] = true;
+                    result["message"] = $"脚本 '{scriptType.Name}' 已存在于预制体根节点，跳过重复挂载。";
+                    result["alreadyAttached"] = true;
+                    return result;
+                }
+
+                contents.AddComponent(scriptType);
+                PrefabUtility.SaveAsPrefabAsset(contents, prefabPath);
+
+                result["success"] = true;
+                result["message"] = $"成功挂载 '{scriptType.FullName}' → {prefabPath}";
+                result["attachedType"] = scriptType.FullName;
+            }
+            catch (Exception e)
+            {
+                result["success"] = false;
+                result["message"] = $"挂载脚本失败: {e.Message}";
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(contents);
             }
 
             return result;

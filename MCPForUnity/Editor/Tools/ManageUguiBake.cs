@@ -101,13 +101,15 @@ namespace MCPForUnity.Editor.Tools
             string userInputContent = @params["user_input_content"]?.ToString();
             string userInputExtension = @params["user_input_extension"]?.ToString() ?? "txt";
             string userInputSourcePath = @params["user_input_source_path"]?.ToString();
+            string attachScript = @params["attach_script"]?.ToString();
 
             try
             {
                 var result = UguiBake.UguiBakeBridge.BakeFromHtml(
                     htmlContent, prefabPath, width, height, useTMP,
                     sourceHtml, templatePrefab, fontPath, true,
-                    userInputContent, userInputExtension, userInputSourcePath);
+                    userInputContent, userInputExtension, userInputSourcePath,
+                    attachScript);
                 return ToResponse(result);
             }
             catch (Exception e)
