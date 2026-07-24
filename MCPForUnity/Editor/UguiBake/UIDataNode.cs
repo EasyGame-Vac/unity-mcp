@@ -74,6 +74,18 @@ namespace MCPForUnity.Editor.UguiBake
         /// <summary>CanvasScaler 的 matchWidthOrHeight 值（0=完全匹配宽度，1=完全匹配高度，0.5=平衡）。仅根节点生效，默认 0.5。</summary>
         [Newtonsoft.Json.JsonProperty("scalerMatch")]
         public float scalerMatch = 0.5f;
+        /// <summary>模板自带 bg 子节点处理：keep(默认) | hide。仅根节点生效（data-u-template-bg）。</summary>
+        [Newtonsoft.Json.JsonProperty("templateBg")]
+        public string templateBg;
+        /// <summary>ScrollRect Content 布局：none(默认) | vertical | horizontal。非 none 时烘焙器在 Content 上挂载对应 LayoutGroup + ContentSizeFitter。</summary>
+        [Newtonsoft.Json.JsonProperty("contentLayout")]
+        public string contentLayout;
+        /// <summary>Content 布局项间距（来自 CSS gap）。</summary>
+        [Newtonsoft.Json.JsonProperty("contentSpacing")]
+        public float contentSpacing;
+        /// <summary>Content 布局内边距（来自 CSS padding，顺序：上右下左，同 CSS 简写规则解析）。</summary>
+        [Newtonsoft.Json.JsonProperty("contentPadding")]
+        public List<float> contentPadding;
         public List<UIDataNode> children;
     }
 }

@@ -1,4 +1,4 @@
-// HtmlToUguiParser.cs
+// UguiHtmlParser.cs
 // 纯 C# HTML→UIDataNode JSON 解析器，消除浏览器依赖。
 // 实现轻量 HTML DOM 解析 + 简化 CSS 布局引擎 + UIDataNode 构建。
 //
@@ -10,9 +10,9 @@
 //   - data-u-layout: stretch / center / stretch-h / stretch-v / absolute
 //
 // 使用方式：
-//   var json = HtmlToUguiParser.Parse(htmlString);
-//   var json = HtmlToUguiParser.Parse(htmlString, 720, 1440);
-//   var node = HtmlToUguiParser.ParseToNode(htmlString);
+//   var json = UguiHtmlParser.Parse(htmlString);
+//   var json = UguiHtmlParser.Parse(htmlString, 720, 1440);
+//   var node = UguiHtmlParser.ParseToNode(htmlString);
 //
 
 using System;
@@ -29,7 +29,7 @@ namespace MCPForUnity.Editor.UguiBake
     /// 纯 C# HTML→UIDataNode JSON 解析器。
     /// 替代浏览器端「HTML 转 JSON 坐标烘焙器」，实现无浏览器一键烘焙。
     /// </summary>
-    public static class HtmlToUguiParser
+    public static class UguiHtmlParser
     {
         // ──────────────────── 布局结果缓存 ────────────────────
 
@@ -1097,7 +1097,7 @@ namespace MCPForUnity.Editor.UguiBake
                 LayoutChildren(child, depth + 1);
         }
 
-        static void ParsePaddingShorthand(Dictionary<string, string> styles,
+        internal static void ParsePaddingShorthand(Dictionary<string, string> styles,
             ref float top, ref float right, ref float bottom, ref float left)
         {
             if (!styles.TryGetValue("padding", out var val))
@@ -1746,6 +1746,10 @@ namespace MCPForUnity.Editor.UguiBake
             bool uChecked = dom.GetAttribute("data-u-checked", "").Equals("true", StringComparison.OrdinalIgnoreCase);
             string uLayout = dom.GetAttribute("data-u-layout", "").Trim().ToLowerInvariant();
             string uAutoSize = dom.GetAttribute("data-u-auto-size", "").Trim().ToLowerInvariant();
+            // scroll 节点的 Content 布局：vertical / horizontal / none（默认 none）
+            string uContentLayout = dom.GetAttribute("data-u-content-layout", "").Trim().ToLowerInvariant();
+            // 模板 bg 处理：hide 时隐藏模板自带 bg 子节点（仅根节点有意义）
+            string uTemplateBg = dom.GetAttribute("data-u-template-bg", "").Trim().ToLowerInvariant();
 
             // data-u-export 检查
             var exportRaw = dom.GetAttribute("data-u-export", "").Trim().ToLowerInvariant();
@@ -1824,6 +1828,18 @@ namespace MCPForUnity.Editor.UguiBake
                 result.border = border;
             if (!string.IsNullOrEmpty(imageUrl))
                 result.image = imageUrl;
+            if (!string.IsNullOrEmpty(uTemplateBg))
+                result.templateBg = uTemplateBg;
+
+            // scroll 的 Content 布局：从 style 派生间距与内边距
+            if (uType == "scroll" && (uContentLayout == "vertical" || uContentLayout == "horizontal"))
+            {
+                result.contentLayout = uContentLayout;
+                result.contentSpacing = CssParser.ParseLength(styles, "gap", 0);
+                float padTop = 0, padRight = 0, padBottom = 0, padLeft = 0;
+                LayoutEngine.ParsePaddingShorthand(styles, ref padTop, ref padRight, ref padBottom, ref padLeft);
+                result.contentPadding = new List<float> { padTop, padRight, padBottom, padLeft };
+            }
 
             return result;
         }

@@ -1,4 +1,4 @@
-# AI 工作流与 Prompt 模板 — HtmlToUGUI × Unity MCP
+# AI 工作流与 Prompt 模板 — UguiBake × Unity MCP
 
 > 本文件供 AI 助手（Claude / Cursor / TRAE 等）在通过 Unity MCP 制作 UGUI 界面时参考。
 > 调用 `bake_ugui(action="get_spec")` 可获取本规范全文。
@@ -67,7 +67,7 @@ AI 首次操作或需要参考语法时应获取规范，确保生成的 HTML �
 bake_ugui(
     action="bake_from_html",
     html_content="<div data-u-type='div' ...>...</div>",
-    prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/MyPage.prefab",
+    prefab_path="Assets/MCP/UguiBake/Baked/Prefabs/MyPage.prefab",
     reference_width=942,
     reference_height=2048,
     use_tmp=True
@@ -88,7 +88,7 @@ manage_camera(action="screenshot", capture_source="scene_view", view_target="MyP
 ```
 bake_ugui(
     action="generate_view_script",
-    prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/MyPage.prefab",
+    prefab_path="Assets/MCP/UguiBake/Baked/Prefabs/MyPage.prefab",
     namespace="Game.UI"
 )
 ```
@@ -219,6 +219,8 @@ MCP 调用参数 > UguiBakeConfig 配置 > 代码内置默认值
 | `data-u-type` | 控件类型（必填） |
 | `data-u-name` | 节点名称（必填） |
 | `data-u-layout` | 布局关键字 |
+| `data-u-content-layout` | scroll 节点的 Content 自动布局：`vertical` / `horizontal` / `none`（默认）。声明后烘焙器在 Content 上自动挂载对应 LayoutGroup + ContentSizeFitter，间距取 CSS `gap`、内边距取 CSS `padding` |
+| `data-u-template-bg` | 模板背景处理（仅根节点）：`hide` 时隐藏模板自带的 `bg` 全屏背景子节点，适用于游戏场景上的覆盖式面板。页面节点会烘焙到模板的 `content` 子节点下（存在时） |
 | `data-u-value` | slider 默认值 |
 | `data-u-checked` | toggle 默认勾选 |
 | `data-u-dir` | 文字方向（ltr/rtl） |
@@ -258,7 +260,7 @@ display:flex; flex-direction:row; align-items:flex-start; justify-content:space-
 5. 如需调整，修改 HTML 后重新烘焙
 6. 满意后调用 generate_view_script 生成绑定脚本
 
-预制体输出路径：Assets/3rd/HtmlToUGUI/Baked/Prefabs/[PageName].prefab
+预制体输出路径：Assets/MCP/UguiBake/Baked/Prefabs/[PageName].prefab
 ```
 
 ### 模板 B：修改现有界面
@@ -266,7 +268,7 @@ display:flex; flex-direction:row; align-items:flex-start; justify-content:space-
 ```
 请帮我修改 [界面名称] 界面中的 [具体区域]。
 
-当前预制体路径：Assets/3rd/HtmlToUGUI/Baked/Prefabs/[PageName].prefab
+当前预制体路径：Assets/MCP/UguiBake/Baked/Prefabs/[PageName].prefab
 修改需求：[具体修改内容]
 
 请按以下步骤执行：
@@ -317,10 +319,10 @@ display:flex; flex-direction:row; align-items:flex-start; justify-content:space-
 
 | 类型 | 路径 | 命名规则 |
 |------|------|---------|
-| 预制体 | `Assets/3rd/HtmlToUGUI/Baked/Prefabs/` | `{PageName}.prefab` |
-| JSON 快照 | `Assets/3rd/HtmlToUGUI/Baked/Json/` | `{PageName}.ugui.json` |
+| 预制体 | `Assets/MCP/UguiBake/Baked/Prefabs/` | `{PageName}.prefab` |
+| JSON 快照 | `Assets/MCP/UguiBake/Baked/Json/` | `{PageName}.ugui.json` |
 | View 脚本 | 同 Prefabs 目录 | `{PageName}View.cs` |
-| 源 HTML | `Assets/3rd/HtmlToUGUI/HTML/` | `{PageName}.html` |
+| 源 HTML | `Assets/MCP/UguiBake/HTML/` | `{PageName}.html` |
 
 ## 七、布局引擎说明
 
@@ -375,7 +377,7 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 | 颜色不正确 | CSS 颜色格式不被解析 | 使用 `#RRGGBB` 或 `#RRGGBBAA` 格式 |
 | 渐变丢失 | `background-image` 中 gradient 格式不标准 | 确保用 `linear-gradient(angle, color, color)` |
 | 图片未加载 | 图片路径无法解析 | 提供 `source_html` 参数 |
-| 编译报错 | HtmlToUGUI 包未正确安装 | 确认 `Assets/3rd/HtmlToUGUI/` 存在 |
+| 编译报错 | MCPForUnity 包未正确安装或版本过旧 | 确认 MCPForUnity 包存在且已编译通过 |
 | bake_ugui 工具不可见 | MCP 工具组未启用 | 在 MCP for Unity 窗口启用 core 组 |
 
 ## 十、完整示例
@@ -444,7 +446,7 @@ C# 解析器实现了简化 CSS 布局引擎，支持以下模式：
 bake_ugui(
     action="bake_from_html",
     html_content="[上面的 HTML]",
-    prefab_path="Assets/3rd/HtmlToUGUI/Baked/Prefabs/SettingsPage.prefab",
+    prefab_path="Assets/MCP/UguiBake/Baked/Prefabs/SettingsPage.prefab",
     reference_width=942,
     reference_height=2048,
     use_tmp=True,

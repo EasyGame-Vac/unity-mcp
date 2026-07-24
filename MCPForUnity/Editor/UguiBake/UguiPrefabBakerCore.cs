@@ -194,6 +194,56 @@ namespace MCPForUnity.Editor.UguiBake
                 && nodeData.linearGradient.colors.Count >= 2;
         }
 
+        /// <summary>
+        /// 在 ScrollRect 的 Content 上挂载 LayoutGroup + ContentSizeFitter。
+        /// 间距/内边距来自 UIDataNode（HTML 中的 gap / padding）。
+        /// </summary>
+        static void ApplyScrollContentLayout(GameObject contentGo, UIDataNode nodeData, bool isVertical)
+        {
+            float padTop = 0, padRight = 0, padBottom = 0, padLeft = 0;
+            if (nodeData.contentPadding != null && nodeData.contentPadding.Count >= 4)
+            {
+                padTop = nodeData.contentPadding[0];
+                padRight = nodeData.contentPadding[1];
+                padBottom = nodeData.contentPadding[2];
+                padLeft = nodeData.contentPadding[3];
+            }
+            var padding = new RectOffset(
+                Mathf.RoundToInt(padLeft), Mathf.RoundToInt(padRight),
+                Mathf.RoundToInt(padTop), Mathf.RoundToInt(padBottom));
+
+            if (isVertical)
+            {
+                // 宽度由布局拉伸，高度保留子项自身烘焙高度（childControlHeight=false）
+                var vlg = contentGo.AddComponent<VerticalLayoutGroup>();
+                vlg.padding = padding;
+                vlg.spacing = nodeData.contentSpacing;
+                vlg.childAlignment = TextAnchor.UpperCenter;
+                vlg.childControlWidth = true;
+                vlg.childControlHeight = false;
+                vlg.childForceExpandWidth = true;
+                vlg.childForceExpandHeight = false;
+
+                var csf = contentGo.AddComponent<ContentSizeFitter>();
+                csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            }
+            else
+            {
+                // 高度由布局拉伸，宽度保留子项自身烘焙宽度（childControlWidth=false）
+                var hlg = contentGo.AddComponent<HorizontalLayoutGroup>();
+                hlg.padding = padding;
+                hlg.spacing = nodeData.contentSpacing;
+                hlg.childAlignment = TextAnchor.MiddleLeft;
+                hlg.childControlWidth = false;
+                hlg.childControlHeight = true;
+                hlg.childForceExpandWidth = false;
+                hlg.childForceExpandHeight = true;
+
+                var csf = contentGo.AddComponent<ContentSizeFitter>();
+                csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            }
+        }
+
         public static GameObject CreateUINode(UIDataNode nodeData, Transform parent, float parentAbsX, float parentAbsY, float parentAbsW, float parentAbsH, bool useTMPText = true)
         {
             GameObject go = new GameObject(nodeData.name);
@@ -484,13 +534,32 @@ namespace MCPForUnity.Editor.UguiBake
                     GameObject viewportGo = UguiPrefabBakerUtils.CreateChildRect(go, "Viewport", Vector2.zero, Vector2.one);
                     viewportGo.AddComponent<RectMask2D>();
 
-                    GameObject contentGo = UguiPrefabBakerUtils.CreateChildRect(viewportGo, "Content", new Vector2(0, 1), new Vector2(0, 1));
-                    RectTransform contentRect = contentGo.GetComponent<RectTransform>();
-                    contentRect.pivot = new Vector2(0, 1);
-                    contentRect.sizeDelta = new Vector2(nodeData.width, nodeData.height);
+                    // 声明了 Content 布局（data-u-content-layout）时，Content 采用拉伸锚点 + LayoutGroup + ContentSizeFitter
+                    bool useContentLayout = nodeData.contentLayout == "vertical" || nodeData.contentLayout == "horizontal";
+                    bool contentVertical = nodeData.contentLayout != "horizontal";
+
+                    GameObject contentGo;
+                    if (useContentLayout)
+                    {
+                        contentGo = contentVertical
+                            ? UguiPrefabBakerUtils.CreateChildRect(viewportGo, "Content", new Vector2(0, 1), new Vector2(1, 1))
+                            : UguiPrefabBakerUtils.CreateChildRect(viewportGo, "Content", new Vector2(0, 0), new Vector2(0, 1));
+                        var rt = contentGo.GetComponent<RectTransform>();
+                        rt.pivot = contentVertical ? new Vector2(0.5f, 1f) : new Vector2(0f, 0.5f);
+                        rt.offsetMin = Vector2.zero;
+                        rt.offsetMax = Vector2.zero;
+                        ApplyScrollContentLayout(contentGo, nodeData, contentVertical);
+                    }
+                    else
+                    {
+                        contentGo = UguiPrefabBakerUtils.CreateChildRect(viewportGo, "Content", new Vector2(0, 1), new Vector2(0, 1));
+                        RectTransform contentRect = contentGo.GetComponent<RectTransform>();
+                        contentRect.pivot = new Vector2(0, 1);
+                        contentRect.sizeDelta = new Vector2(nodeData.width, nodeData.height);
+                    }
 
                     scrollRect.viewport = viewportGo.GetComponent<RectTransform>();
-                    scrollRect.content = contentRect;
+                    scrollRect.content = contentGo.GetComponent<RectTransform>();
                     return contentGo.transform;
 
                 case "toggle":
@@ -897,7 +966,21 @@ namespace MCPForUnity.Editor.UguiBake
                     if (applyCanvasScaler)
                         ConfigureCanvasScaler(canvas, refSize, rootNode.scalerMatch);
 
-                    var bakedRoots = BakeJsonRootUnderTemplateWithoutShellWithReturn(rootNode, contents.transform, refSize, useTMPText);
+                    // 页面节点烘焙到模板的 content 子节点下（存在时），保持模板的层级设计（bg 在底层）
+                    Transform bakeParent = contents.transform;
+                    var contentChild = contents.transform.Find("content");
+                    if (contentChild != null)
+                        bakeParent = contentChild;
+
+                    // HTML 根节点声明 data-u-template-bg="hide" 时，隐藏模板自带的全屏背景
+                    if (string.Equals(rootNode.templateBg, "hide", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var bgChild = contents.transform.Find("bg");
+                        if (bgChild != null)
+                            bgChild.gameObject.SetActive(false);
+                    }
+
+                    var bakedRoots = BakeJsonRootUnderTemplateWithoutShellWithReturn(rootNode, bakeParent, refSize, useTMPText);
                     // 对根 UI 节点应用 SafeArea
                     if (bakedRoots != null)
                     {

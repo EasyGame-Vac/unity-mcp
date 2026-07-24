@@ -161,13 +161,13 @@ namespace MCPForUnity.Tests.Editor
         [SetUp]
         public void Setup()
         {
-            HtmlToUguiParser.ClearCache();
+            UguiHtmlParser.ClearCache();
         }
 
         [Test]
         public void ClearCache_RemovesAllEntries()
         {
-            HtmlToUguiParser.ClearCache();
+            UguiHtmlParser.ClearCache();
             // 确保不抛出异常
             Assert.Pass();
         }
@@ -179,8 +179,8 @@ namespace MCPForUnity.Tests.Editor
                           "<div data-u-type=\"text\" data-u-name=\"label\" style=\"font-size:24px;color:#fff\">Hello</div>" +
                           "</div>";
 
-            var first = HtmlToUguiParser.ParseToNode(html, 400, 300);
-            var second = HtmlToUguiParser.ParseToNode(html, 400, 300);
+            var first = UguiHtmlParser.ParseToNode(html, 400, 300);
+            var second = UguiHtmlParser.ParseToNode(html, 400, 300);
 
             // 缓存应返回同一实例引用
             Assert.AreSame(first, second);
@@ -191,8 +191,8 @@ namespace MCPForUnity.Tests.Editor
         {
             string html = "<div data-u-type=\"div\" data-u-name=\"root\" style=\"width:400px;height:300px;background:#333\"></div>";
 
-            var first = HtmlToUguiParser.ParseToNode(html, 400, 300);
-            var second = HtmlToUguiParser.ParseToNode(html, 800, 600);
+            var first = UguiHtmlParser.ParseToNode(html, 400, 300);
+            var second = UguiHtmlParser.ParseToNode(html, 800, 600);
 
             // 不同尺寸应产生不同实例
             Assert.AreNotSame(first, second);
@@ -203,9 +203,9 @@ namespace MCPForUnity.Tests.Editor
         {
             string html = "<div data-u-type=\"div\" data-u-name=\"root\" style=\"width:200px;height:100px;background:#fff\"></div>";
 
-            var first = HtmlToUguiParser.ParseToNode(html, 200, 100);
-            HtmlToUguiParser.ClearCache();
-            var second = HtmlToUguiParser.ParseToNode(html, 200, 100);
+            var first = UguiHtmlParser.ParseToNode(html, 200, 100);
+            UguiHtmlParser.ClearCache();
+            var second = UguiHtmlParser.ParseToNode(html, 200, 100);
 
             Assert.AreNotSame(first, second);
         }
@@ -225,7 +225,7 @@ namespace MCPForUnity.Tests.Editor
                           "<div data-u-type=\"text\" data-u-name=\"label\" style=\"font-size:24px;color:#fff\">Hello World</div>" +
                           "</div>";
 
-            var root = HtmlToUguiParser.ParseToNode(html, 400, 300);
+            var root = UguiHtmlParser.ParseToNode(html, 400, 300);
             Assert.IsNotNull(root);
             Assert.IsNotNull(root.children);
             Assert.AreEqual(1, root.children.Count);
@@ -242,7 +242,7 @@ namespace MCPForUnity.Tests.Editor
                           "<div data-u-type=\"text\" data-u-name=\"label\" style=\"font-size:32px;color:#fff\">你好世界</div>" +
                           "</div>";
 
-            var root = HtmlToUguiParser.ParseToNode(html, 400, 300);
+            var root = UguiHtmlParser.ParseToNode(html, 400, 300);
             var textNode = root.children[0];
             Assert.Greater(textNode.width, 0f, "CJK 文本节点宽度应大于 0");
         }
@@ -257,10 +257,10 @@ namespace MCPForUnity.Tests.Editor
                               "<div data-u-type=\"text\" data-u-name=\"l\" style=\"font-size:24px;color:#fff\">这是一个很长的中文文本内容用于测试宽度估算</div>" +
                               "</div>";
 
-            var shortNode = HtmlToUguiParser.ParseToNode(htmlShort, 800, 600);
-            var longNode = HtmlToUguiParser.ParseToNode(htmlLong, 800, 600);
+            var shortNode = UguiHtmlParser.ParseToNode(htmlShort, 800, 600);
+            var longNode = UguiHtmlParser.ParseToNode(htmlLong, 800, 600);
 
-            HtmlToUguiParser.ClearCache();
+            UguiHtmlParser.ClearCache();
 
             var shortText = shortNode.children[0];
             var longText = longNode.children[0];
@@ -280,7 +280,7 @@ namespace MCPForUnity.Tests.Editor
         [TearDown]
         public void Cleanup()
         {
-            HtmlToUguiParser.ClearCache();
+            UguiHtmlParser.ClearCache();
         }
 
         [Test]
@@ -291,7 +291,7 @@ namespace MCPForUnity.Tests.Editor
                           "<div data-u-type=\"div\" data-u-name=\"b\" style=\"width:100%;height:200px;background:#0f0\"></div>" +
                           "</div>";
 
-            var root = HtmlToUguiParser.ParseToNode(html, 400, 600);
+            var root = UguiHtmlParser.ParseToNode(html, 400, 600);
             Assert.IsNotNull(root.children);
             Assert.AreEqual(2, root.children.Count);
 
@@ -310,7 +310,7 @@ namespace MCPForUnity.Tests.Editor
                           "<div data-u-type=\"div\" data-u-name=\"grow2\" style=\"flex:1;background:#0f0\"></div>" +
                           "</div>";
 
-            var root = HtmlToUguiParser.ParseToNode(html, 400, 600);
+            var root = UguiHtmlParser.ParseToNode(html, 400, 600);
             Assert.AreEqual(3, root.children.Count);
 
             var grow1 = root.children[1];
@@ -333,7 +333,7 @@ namespace MCPForUnity.Tests.Editor
                           "<div data-u-type=\"div\" data-u-name=\"b\" style=\"width:200px;height:100%;background:#0f0\"></div>" +
                           "</div>";
 
-            var root = HtmlToUguiParser.ParseToNode(html, 600, 100);
+            var root = UguiHtmlParser.ParseToNode(html, 600, 100);
             Assert.AreEqual(2, root.children.Count);
 
             var a = root.children[0];
@@ -353,9 +353,9 @@ namespace MCPForUnity.Tests.Editor
                                  "<div data-u-type=\"div\" data-u-name=\"b\" style=\"width:100%;height:100px;background:#0f0\"></div>" +
                                  "</div>";
 
-            var noGap = HtmlToUguiParser.ParseToNode(htmlNoGap, 400, 600);
-            HtmlToUguiParser.ClearCache();
-            var withGap = HtmlToUguiParser.ParseToNode(htmlWithGap, 400, 600);
+            var noGap = UguiHtmlParser.ParseToNode(htmlNoGap, 400, 600);
+            UguiHtmlParser.ClearCache();
+            var withGap = UguiHtmlParser.ParseToNode(htmlWithGap, 400, 600);
 
             float noGapSpacing = noGap.children[1].y - noGap.children[0].y;
             float withGapSpacing = withGap.children[1].y - withGap.children[0].y;

@@ -1,7 +1,7 @@
 """
-Bake UGUI prefabs from UI-DSL HTML via the HtmlToUGUI pipeline.
+Bake UGUI prefabs from UI-DSL HTML via the built-in UguiBake pipeline.
 
-This tool wraps the HtmlToUGUIBakerCore baking logic, exposing it as a standard
+This tool wraps the UguiPrefabBakerCore baking logic, exposing it as a standard
 MCP tool so AI assistants can generate UGUI prefabs directly in conversation —
 no browser, no manual paste, no software switching.
 
@@ -16,7 +16,8 @@ Actions:
   - get_spec:             Retrieve the UI-DSL HTML specification for AI reference
   - generate_view_script: Auto-generate C# View script with field bindings
 
-Requires the HtmlToUGUI package to be installed in the Unity project.
+The UguiBake pipeline is built into the MCPForUnity package — no external
+package dependency required.
 """
 from typing import Annotated, Any, Literal
 
@@ -31,7 +32,7 @@ from transport.legacy.unity_connection import async_send_command_with_retry
 
 @mcp_for_unity_tool(
     description=(
-        "Bake UGUI prefabs from UI-DSL HTML via the HtmlToUGUI pipeline. "
+        "Bake UGUI prefabs from UI-DSL HTML via the built-in UguiBake pipeline. "
         "The AI assistant converts arbitrary input (natural language, screenshots, "
         "existing HTML) into standard UI-DSL HTML, then calls this tool to bake. "
         "The baked HTML is returned in the result as 'htmlContent'. "
@@ -41,7 +42,7 @@ from transport.legacy.unity_connection import async_send_command_with_retry
         "generate_view_script (auto-generate C# View script with field bindings). "
         "Supports use_tmp (TMP vs legacy Text), font_path (custom font asset), "
         "and template_prefab (parent template with Canvas). "
-        "Requires HtmlToUGUI package installed in the Unity project."
+        "The UguiBake pipeline is built into the MCPForUnity package."
     ),
     group="core",
     annotations=ToolAnnotations(
@@ -68,6 +69,13 @@ async def bake_ugui(
         "Parsed by the pure C# parser — no browser required. "
         "The AI assistant is responsible for generating this HTML from arbitrary "
         "input (natural language, screenshots, existing HTML, etc.).",
+    ] = None,
+    html_path: Annotated[
+        str | None,
+        "Path to a UI-DSL HTML file (for bake_from_html). Alternative to html_content: "
+        "the Unity side reads the file content directly. Assets-relative or absolute path. "
+        "Enables an iterate-by-editing-file workflow: create the HTML once, then only edit "
+        "the file and re-bake.",
     ] = None,
     prefab_path: Annotated[
         str | None,
@@ -138,11 +146,14 @@ async def bake_ugui(
     params_dict: dict[str, Any] = {"action": action}
 
     if action == "bake_from_html":
-        if html_content is None:
-            return {"success": False, "message": "Parameter 'html_content' is required for 'bake_from_html' action."}
+        if html_content is None and html_path is None:
+            return {"success": False, "message": "Parameter 'html_content' or 'html_path' is required for 'bake_from_html' action."}
         if prefab_path is None:
             return {"success": False, "message": "Parameter 'prefab_path' is required for 'bake_from_html' action."}
-        params_dict["html_content"] = html_content
+        if html_content is not None:
+            params_dict["html_content"] = html_content
+        if html_path is not None:
+            params_dict["html_path"] = html_path
         params_dict["prefab_path"] = prefab_path
         params_dict["reference_width"] = reference_width
         params_dict["reference_height"] = reference_height

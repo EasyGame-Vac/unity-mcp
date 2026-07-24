@@ -100,7 +100,7 @@ namespace MCPForUnity.Editor.UguiBake
             string jsonContent;
             try
             {
-                jsonContent = HtmlToUguiParser.Parse(htmlContent, width, height);
+                jsonContent = UguiHtmlParser.Parse(htmlContent, width, height);
                 report.LogInfo("parse", "HTML 解析成功");
             }
             catch (Exception e)
@@ -153,28 +153,60 @@ namespace MCPForUnity.Editor.UguiBake
                 Debug.LogWarning($"[UguiBakeBridge] 输入/HTML 保存失败（不影响烘焙）: {e.Message}");
             }
 
-            // 4.5 增量烘焙：JSON 未变更时跳过重新烘焙
+            // 4.1 解析模板预制体：参数优先，未指定时回退到 UguiBakeConfig 默认模板。
+            // 提前解析以便增量跳过时能识别「预制体尚未应用模板」的情况。
+            GameObject templatePrefab = null;
+            string resolvedTemplatePath = templatePrefabPath;
+            if (string.IsNullOrEmpty(resolvedTemplatePath))
+            {
+                var bakeConfig = FindBakeConfig();
+                if (bakeConfig != null && bakeConfig.defaultTemplatePrefab != null)
+                {
+                    templatePrefab = bakeConfig.defaultTemplatePrefab;
+                    resolvedTemplatePath = AssetDatabase.GetAssetPath(templatePrefab);
+                    report.LogInfo("bake", $"使用配置默认模板: {resolvedTemplatePath}");
+                }
+            }
+            if (templatePrefab == null && !string.IsNullOrEmpty(resolvedTemplatePath))
+            {
+                templatePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(resolvedTemplatePath);
+                if (templatePrefab == null)
+                {
+                    report.LogError("bake", $"模板预制体未找到: {resolvedTemplatePath}");
+                    report.Finish(false, nodeCount);
+                    result["bakeReport"] = report.ToSummaryString();
+                    return ErrorResult($"模板预制体未找到: {resolvedTemplatePath}");
+                }
+            }
+
+            // 4.5 增量烘焙：JSON 未变更时跳过重新烘焙。
+            // 例外：将应用模板但现有预制体根节点无 Canvas（即上次未按模板烘焙）时不跳过。
             if (skipIfUnchanged && AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath) != null)
             {
-                string prevSnapshot = FindLatestJsonSnapshot(pageName);
-                if (prevSnapshot != null && IsJsonEquivalent(jsonContent, File.ReadAllText(prevSnapshot)))
+                var existingPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                bool templateMissing = templatePrefab != null && existingPrefab.GetComponent<Canvas>() == null;
+                if (!templateMissing)
                 {
-                    report.LogInfo("bake", "JSON 与上次快照一致，跳过烘焙（增量模式）");
-                    report.Finish(true, nodeCount);
-                    result["bakeReport"] = report.ToSummaryString();
-                    result["bakeElapsedMs"] = report.GetTotalElapsedMs();
-                    result["success"] = true;
-                    result["prefabPath"] = prefabPath;
-                    result["pageName"] = pageName;
-                    result["nodeCount"] = nodeCount;
-                    result["skipped"] = true;
-                    result["message"] = $"JSON 未变更，跳过烘焙: {pageName}";
-                    result["htmlContent"] = htmlContent;
-                    if (!string.IsNullOrEmpty(convertedHtmlPath))
-                        result["convertedHtmlPath"] = convertedHtmlPath;
-                    if (!string.IsNullOrEmpty(userInputPath))
-                        result["userInputPath"] = userInputPath;
-                    return result;
+                    string prevSnapshot = FindLatestJsonSnapshot(pageName);
+                    if (prevSnapshot != null && IsJsonEquivalent(jsonContent, File.ReadAllText(prevSnapshot)))
+                    {
+                        report.LogInfo("bake", "JSON 与上次快照一致，跳过烘焙（增量模式）");
+                        report.Finish(true, nodeCount);
+                        result["bakeReport"] = report.ToSummaryString();
+                        result["bakeElapsedMs"] = report.GetTotalElapsedMs();
+                        result["success"] = true;
+                        result["prefabPath"] = prefabPath;
+                        result["pageName"] = pageName;
+                        result["nodeCount"] = nodeCount;
+                        result["skipped"] = true;
+                        result["message"] = $"JSON 未变更，跳过烘焙: {pageName}";
+                        result["htmlContent"] = htmlContent;
+                        if (!string.IsNullOrEmpty(convertedHtmlPath))
+                            result["convertedHtmlPath"] = convertedHtmlPath;
+                        if (!string.IsNullOrEmpty(userInputPath))
+                            result["userInputPath"] = userInputPath;
+                        return result;
+                    }
                 }
             }
 
@@ -213,21 +245,7 @@ namespace MCPForUnity.Editor.UguiBake
             // 7. 确保输出目录存在
             EnsureAssetFolderForPath(prefabPath);
 
-            // 8. 解析模板预制体
-            GameObject templatePrefab = null;
-            if (!string.IsNullOrEmpty(templatePrefabPath))
-            {
-                templatePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(templatePrefabPath);
-                if (templatePrefab == null)
-                {
-                    report.LogError("bake", $"模板预制体未找到: {templatePrefabPath}");
-                    report.Finish(false, nodeCount);
-                    result["bakeReport"] = report.ToSummaryString();
-                    return ErrorResult($"模板预制体未找到: {templatePrefabPath}");
-                }
-            }
-
-            // 9. 加载字体
+            // 8. 加载字体
             TMP_FontAsset tmpFont = null;
             Font legacyFont = null;
             LoadFonts(fontPath, useTMP, out tmpFont, out legacyFont);
@@ -277,6 +295,8 @@ namespace MCPForUnity.Editor.UguiBake
                 result["userInputPath"] = userInputPath;
             if (!string.IsNullOrEmpty(fontPath))
                 result["fontPath"] = fontPath;
+            if (templatePrefab != null)
+                result["templatePrefab"] = resolvedTemplatePath;
             if (tmpFont != null)
                 result["tmpFont"] = tmpFont.name;
             if (legacyFont != null)

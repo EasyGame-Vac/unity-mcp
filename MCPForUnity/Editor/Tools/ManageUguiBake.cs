@@ -66,8 +66,19 @@ namespace MCPForUnity.Editor.Tools
         private static object HandleBakeFromHtml(JObject @params)
         {
             string htmlContent = @params["html_content"]?.ToString();
+            string htmlPath = @params["html_path"]?.ToString();
+
+            // 支持传入 HTML 文件路径：html_content 为空时改为读取文件。
+            // 便于「首次生成 HTML 文件后，后续只改文件即可快速重烘」的迭代流程。
             if (string.IsNullOrWhiteSpace(htmlContent))
-                return new ErrorResponse("Required parameter 'html_content' is missing or empty.");
+            {
+                if (string.IsNullOrWhiteSpace(htmlPath))
+                    return new ErrorResponse("Required parameter 'html_content' or 'html_path' is missing or empty.");
+
+                htmlContent = ReadHtmlFile(htmlPath, out string readError);
+                if (htmlContent == null)
+                    return new ErrorResponse(readError);
+            }
 
             string prefabPath = @params["prefab_path"]?.ToString();
             if (string.IsNullOrWhiteSpace(prefabPath))
@@ -77,6 +88,14 @@ namespace MCPForUnity.Editor.Tools
             int height = @params["reference_height"]?.Value<int>() ?? 2048;
             bool useTMP = @params["use_tmp"]?.Value<bool>() ?? true;
             string sourceHtml = @params["source_html"]?.ToString();
+            // 使用 html_path 时，若未显式指定 source_html 且路径是 Assets 相对路径，
+            // 自动将其作为 source_html，保证 HTML 内相对图片路径可解析。
+            if (string.IsNullOrWhiteSpace(sourceHtml)
+                && !string.IsNullOrWhiteSpace(htmlPath)
+                && htmlPath.Replace('\\', '/').StartsWith("Assets/"))
+            {
+                sourceHtml = htmlPath.Replace('\\', '/');
+            }
             string templatePrefab = @params["template_prefab"]?.ToString();
             string fontPath = @params["font_path"]?.ToString();
             string userInputContent = @params["user_input_content"]?.ToString();
@@ -98,6 +117,36 @@ namespace MCPForUnity.Editor.Tools
         }
 
         // ──────────────────── Action: list ────────────────────
+
+        /// <summary>
+        /// 读取 HTML 文件内容。支持 Assets 相对路径与绝对路径。
+        /// </summary>
+        private static string ReadHtmlFile(string path, out string error)
+        {
+            error = null;
+            string fullPath = path;
+            if (!System.IO.Path.IsPathRooted(fullPath))
+            {
+                // 相对路径按项目根目录解析（当前工作目录即项目根）
+                fullPath = System.IO.Path.GetFullPath(fullPath);
+            }
+
+            if (!System.IO.File.Exists(fullPath))
+            {
+                error = $"HTML file not found: '{fullPath}'.";
+                return null;
+            }
+
+            try
+            {
+                return System.IO.File.ReadAllText(fullPath);
+            }
+            catch (Exception e)
+            {
+                error = $"Failed to read HTML file '{fullPath}': {e.Message}";
+                return null;
+            }
+        }
 
         private static object HandleList(JObject @params)
         {
