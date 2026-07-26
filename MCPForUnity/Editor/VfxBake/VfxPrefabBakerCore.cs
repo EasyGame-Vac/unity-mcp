@@ -21,6 +21,7 @@ using UnityEngine;
 using UnityEditor;
 using Newtonsoft.Json.Linq;
 using MCPForUnity.Runtime.VfxBake;
+using UnityEngine.Rendering;
 
 namespace MCPForUnity.Editor.VfxBake
 {
@@ -34,8 +35,86 @@ namespace MCPForUnity.Editor.VfxBake
         /// <summary>贴图材质输出目录（烘焙出的 .mat 资产存放处）。</summary>
         public const string DefaultMaterialDir = "Assets/MCP/VfxBake/Baked/Materials";
 
-        /// <summary>贴图→材质缓存，避免同一贴图重复创建材质资产（key: texPath|shaderName）。</summary>
+        /// <summary>贴图→材质缓存，避免同一贴图重复创建材质资产（key: texPath|shaderName|blendMode）。</summary>
         static readonly Dictionary<string, Material> _texMaterialCache = new Dictionary<string, Material>();
+
+        // ──────────────────── 管线 / Shader / 混合模式 ────────────────────
+
+        /// <summary>粒子混合模式。</summary>
+        enum ParticleBlend { Alpha, Additive }
+
+        /// <summary>当前是否 URP/HDRP（SRP 管线）。Built-in 返回 false。</summary>
+        static bool IsSrp() => GraphicsSettings.currentRenderPipeline != null;
+
+        /// <summary>
+        /// 按当前管线解析粒子 shader：显式 shaderRef 优先；否则 SRP 用 Particles/Unlit，Built-in 回退 Default-Particle 基底。
+        /// shaderRef 支持别名："urp-particle-unlit" / "particle-unlit" / 直接 shader 名。
+        /// </summary>
+        static Shader ResolveParticleShader(string shaderRef)
+        {
+            if (!string.IsNullOrWhiteSpace(shaderRef))
+            {
+                string s = shaderRef.Trim();
+                if (s.Equals("urp-particle-unlit", StringComparison.OrdinalIgnoreCase) ||
+                    s.Equals("particle-unlit", StringComparison.OrdinalIgnoreCase))
+                    s = "Universal Render Pipeline/Particles/Unlit";
+                var sh = Shader.Find(s);
+                if (sh != null) return sh;
+                Debug.LogWarning($"[VfxPrefabBakerCore] 找不到 shader '{shaderRef}'，按管线自动选择。");
+            }
+            if (IsSrp())
+            {
+                var urp = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+                if (urp != null) return urp;
+            }
+            // Built-in 回退：沿用内置 Default-Particle 的 shader
+            return AssetDatabase.GetBuiltinExtraResource<Material>("Default-Particle.mat")?.shader;
+        }
+
+        /// <summary>解析 blendMode 字符串（additive/add → Additive；其余 → Alpha）。</summary>
+        static ParticleBlend ParseBlendMode(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return ParticleBlend.Alpha;
+            s = s.Trim().ToLowerInvariant();
+            return (s == "additive" || s == "add") ? ParticleBlend.Additive : ParticleBlend.Alpha;
+        }
+
+        /// <summary>把混合模式写入 URP Particles/Unlit 材质（_Surface=0 不透明/1透明；_Blend 见 BlendMode 枚举）。</summary>
+        static void ApplyUrpBlendMode(Material mat, ParticleBlend blend)
+        {
+            if (mat == null || mat.shader == null) return;
+            if (!mat.shader.name.Contains("Universal Render Pipeline/Particles/Unlit")) return;
+            mat.SetFloat("_Surface", 1f); // Transparent
+            mat.SetFloat("_Blend", blend == ParticleBlend.Additive ? 4f : 0f); // 4=Additive, 0=Alpha
+        }
+
+        /// <summary>
+        /// 按贴图文件名后缀推断混合模式：_add/_addb → Additive；_alpha → Alpha；无后缀 → null（无法判断）。
+        /// </summary>
+        static ParticleBlend? InferBlendFromTextureName(string texRef)
+        {
+            if (string.IsNullOrWhiteSpace(texRef)) return null;
+            string fn = Path.GetFileNameWithoutExtension(texRef).ToLowerInvariant();
+            if (fn.EndsWith("_add") || fn.EndsWith("_addb")) return ParticleBlend.Additive;
+            if (fn.EndsWith("_alpha")) return ParticleBlend.Alpha;
+            return null;
+        }
+
+        /// <summary>
+        /// 解析最终混合模式：显式 blendModeRef 优先；缺省按贴图后缀推断；仍无 → Alpha 兜底并告警。
+        /// </summary>
+        static ParticleBlend ResolveBlend(string blendModeRef, string texRef)
+        {
+            if (!string.IsNullOrWhiteSpace(blendModeRef))
+                return ParseBlendMode(blendModeRef);
+
+            var inferred = InferBlendFromTextureName(texRef);
+            if (inferred.HasValue)
+                return inferred.Value;
+
+            Debug.LogWarning($"[VfxPrefabBakerCore] 贴图 '{texRef}' 无 _add/_addb/_alpha 后缀，无法推断混合模式，按 Alpha 兜底（建议补后缀）。");
+            return ParticleBlend.Alpha;
+        }
 
         /// <summary>
         /// 从 JSON 字符串烘焙预制体。成功返回 true，失败返回 false 并输出错误信息。
@@ -463,6 +542,9 @@ namespace MCPForUnity.Editor.VfxBake
 
             string textureRef = node["texture"]?.ToString();
             string materialRef = node["material"]?.ToString();
+            string shaderRef = node["shader"]?.ToString();
+            string blendModeRef = node["blendMode"]?.ToString();
+            float hdrIntensity = node["hdrIntensity"] != null ? node["hdrIntensity"].Value<float>() : 0f;
 
             // 1) texture 优先：以基底材质（默认或 material 指定）克隆后写入 _MainTex，
             //    生成可持久化的 .mat 资产并缓存，使预制体保存后贴图不丢失。
@@ -471,8 +553,10 @@ namespace MCPForUnity.Editor.VfxBake
                 Texture2D tex = ResolveTexture(textureRef);
                 if (tex != null)
                 {
-                    Material baseMat = LoadMaterialForClone(materialRef);
-                    renderer.sharedMaterial = GetOrCreateParticleMaterial(tex, baseMat);
+                    // 混合模式：显式 blendMode > 贴图后缀推断 > Alpha 兜底（告警在 ResolveBlend 内）
+                    var blend = ResolveBlend(blendModeRef, textureRef);
+                    Material baseMat = LoadMaterialForClone(materialRef, shaderRef);
+                    renderer.sharedMaterial = GetOrCreateParticleMaterial(tex, baseMat, blend, hdrIntensity);
                     return;
                 }
                 Debug.LogWarning($"[VfxPrefabBakerCore] 无法加载贴图 '{textureRef}'，回退到 material 字段解析。");
@@ -527,24 +611,25 @@ namespace MCPForUnity.Editor.VfxBake
         }
 
         /// <summary>
-        /// 取基底材质（用于克隆）：null / "default-particle" → 内置 Default-Particle；
-        /// 其它视为 Assets 相对路径，加载失败回退内置。
+        /// 取基底材质（用于克隆）：null / "default-particle" → 按当前管线取正确 shader 的临时基底；
+        /// 其它视为 Assets 相对路径，加载失败回退管线基底。显式 shaderRef 优先。
         /// </summary>
-        static Material LoadMaterialForClone(string materialRef)
+        static Material LoadMaterialForClone(string materialRef, string shaderRef = null)
         {
-            if (string.IsNullOrWhiteSpace(materialRef) ||
-                string.Equals(materialRef, "default-particle", StringComparison.OrdinalIgnoreCase))
+            // 用户显式给了材质路径：直接用其 shader 作基底
+            if (!string.IsNullOrWhiteSpace(materialRef) &&
+                !string.Equals(materialRef, "default-particle", StringComparison.OrdinalIgnoreCase))
             {
-                return AssetDatabase.GetBuiltinExtraResource<Material>("Default-Particle.mat");
+                var mat = AssetDatabase.LoadAssetAtPath<Material>(materialRef.Replace("\\", "/"));
+                if (mat != null) return mat;
+                Debug.LogWarning($"[VfxPrefabBakerCore] 无法加载材质 '{materialRef}'，回退管线默认基底。");
             }
 
-            var mat = AssetDatabase.LoadAssetAtPath<Material>(materialRef.Replace("\\", "/"));
-            if (mat == null)
-            {
-                Debug.LogWarning($"[VfxPrefabBakerCore] 无法加载材质 '{materialRef}'，回退到 Default-Particle 作为基底。");
+            // 管线默认基底：URP→Particles/Unlit，Built-in→Default-Particle
+            Shader shader = ResolveParticleShader(shaderRef);
+            if (shader == null)
                 return AssetDatabase.GetBuiltinExtraResource<Material>("Default-Particle.mat");
-            }
-            return mat;
+            return new Material(shader);
         }
 
         /// <summary>
@@ -565,40 +650,52 @@ namespace MCPForUnity.Editor.VfxBake
         }
 
         /// <summary>
-        /// 以 baseMat 为基底克隆并写入贴图，保存为 .mat 资产（按贴图路径缓存，避免重复创建）。
-        /// 已存在的同名材质会复用并刷新贴图，支持贴图重导入后的热更新。
+        /// 以 baseMat 为基底克隆并写入贴图，保存为 .mat 资产（按贴图+shader+blend 缓存，避免重复创建）。
+        /// 已存在的同名材质会复用并刷新贴图/混合模式，支持贴图重导入后的热更新。
+        /// 缓存 key 含 blendMode，使同贴图可分别生成 additive（发光）与 alpha（烟雾）两种材质。
         /// </summary>
-        static Material GetOrCreateParticleMaterial(Texture2D texture, Material baseMat)
+        static Material GetOrCreateParticleMaterial(Texture2D texture, Material baseMat, ParticleBlend blend, float hdrIntensity = 0f)
         {
-            if (baseMat == null)
-                baseMat = AssetDatabase.GetBuiltinExtraResource<Material>("Default-Particle.mat");
+            if (baseMat == null || baseMat.shader == null)
+                baseMat = LoadMaterialForClone(null);
+
+            string blendSuffix = blend == ParticleBlend.Additive ? "Add" : "Alpha";
 
             string texPath = AssetDatabase.GetAssetPath(texture);
             string cacheKey = (string.IsNullOrEmpty(texPath) ? texture.name : texPath)
-                              + "|" + (baseMat.shader != null ? baseMat.shader.name : "Default");
+                              + "|" + baseMat.shader.name + "|" + blendSuffix;
 
             if (_texMaterialCache.TryGetValue(cacheKey, out Material cached) && cached != null)
                 return cached;
 
             EnsureAssetFolder(DefaultMaterialDir);
             string safeName = SanitizeFileName(texture.name);
-            string matPath = $"{DefaultMaterialDir}/VfxTex_{safeName}.mat";
+            string matPath = $"{DefaultMaterialDir}/VfxTex_{safeName}_{blendSuffix}.mat";
 
-            // 复用已存在材质资产并刷新贴图（贴图重导入后保持同步）
+            // 复用已存在材质资产并刷新（贴图/shader/混合模式变更后保持同步）
             var existing = AssetDatabase.LoadAssetAtPath<Material>(matPath);
             Material mat;
             if (existing != null)
             {
                 mat = existing;
-                if (baseMat.shader != null && mat.shader != baseMat.shader)
+                if (mat.shader != baseMat.shader)
                     mat.shader = baseMat.shader;
                 mat.mainTexture = texture;
             }
             else
             {
-                mat = new Material(baseMat) { name = $"VfxTex_{safeName}" };
+                mat = new Material(baseMat) { name = $"VfxTex_{safeName}_{blendSuffix}" };
                 mat.mainTexture = texture;
                 AssetDatabase.CreateAsset(mat, matPath);
+            }
+
+            ApplyUrpBlendMode(mat, blend);
+            if (hdrIntensity > 0f)
+            {
+                if (mat.HasProperty("_BaseColor"))
+                    mat.SetColor("_BaseColor", UnityEngine.Color.white * hdrIntensity);
+                else if (mat.HasProperty("_Color"))
+                    mat.SetColor("_Color", UnityEngine.Color.white * hdrIntensity);
             }
 
             EditorUtility.SetDirty(mat);

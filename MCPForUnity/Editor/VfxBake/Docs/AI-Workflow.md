@@ -155,15 +155,22 @@ bake_vfx(
 | `renderMode` | string | "billboard" | billboard / stretch |
 | `sortingOrder` | int | 0 | 排序层级（2D 常用，如 100） |
 | `texture` | string | 无 | **特效贴图**，Assets 相对路径（带或不带扩展名均可）。指定后以基底材质克隆并写入 `_MainTex`，生成可持久化 `.mat` 资产；同贴图自动复用同一材质。优先级高于 `material` |
-| `material` | string | Unity 默认 | `"default-particle"` 使用内置 Default-Particle.mat；其它值视为 Assets 相对材质路径，加载失败自动回退默认材质。当 `texture` 同时存在时，本字段作为克隆基底；未指定时基底为内置 Default-Particle |
+| `material` | string | Unity 默认 | `"default-particle"` 使用内置 Default-Particle.mat；其它值视为 Assets 相对材质路径，加载失败自动回退默认材质。当 `texture` 同时存在时，本字段作为克隆基底；未指定时基底按渲染管线自动选择 |
+| `shader` | string | 按管线自动 | **粒子 shader**。缺省按当前渲染管线自动选择：URP/HDRP → `Universal Render Pipeline/Particles/Unlit`，Built-in → Default-Particle 的 Legacy shader。支持别名 `"urp-particle-unlit"` / `"particle-unlit"`，或直接给完整 shader 名 |
+| `blendMode` | string | "alpha" | **混合模式**：`"additive"`（发光叠亮，光球/拖尾/闪光/冲击环必用）或 `"alpha"`（半透明，烟雾/遮挡用）。材质缓存 key 含 blend，同贴图可分别生成 `_Add` / `_Alpha` 两种材质 |
+| `hdrIntensity` | number | 0 | HDR 发光强度（仅 SRP，>0 时写入 `_BaseColor` 亮度倍乘，增强泛光感） |
 
-**贴图用法**：先用 `list_textures` 查看可用贴图，再将返回的 `path` 填入 `renderer.texture`。烘焙出的材质保存在 `Assets/MCP/VfxBake/Baked/Materials/VfxTex_{贴图名}.mat`。
+**贴图用法**：先用 `list_textures` 查看可用贴图，再将返回的 `path` 填入 `renderer.texture`。烘焙出的材质保存在 `Assets/MCP/VfxBake/Baked/Materials/VfxTex_{贴图名}_{Add|Alpha}.mat`。
+
+> **混合模式选择**：发光类特效（能量球、拖尾、闪光、冲击环、火花）用 `"additive"`，否则会发灰、没有发光感；烟雾、云雾、遮挡类用 `"alpha"`。
 
 ```json
 "renderer": {
   "renderMode": "billboard",
   "sortingOrder": 100,
-  "texture": "Assets/GameEffect/Texture/Glow/tex_glow_round_001_v.png"
+  "texture": "Assets/GameEffect/Texture/Glow/tex_glow_round_001_v.png",
+  "blendMode": "additive",
+  "hdrIntensity": 2.0
 }
 ```
 
